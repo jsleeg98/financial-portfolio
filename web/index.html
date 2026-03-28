@@ -788,25 +788,35 @@ function renderPerformanceMonthly(p) {
 
 // ── 시세 업데이트 (Yahoo Finance, 무료) ─────────────────────────
 async function fetchWithProxy(url) {
-  // allorigins /get 엔드포인트 (JSON wrapper)
-  try {
-    const resp = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
-    if (resp.ok) {
-      const wrapper = await resp.json();
-      if (wrapper.contents) return JSON.parse(wrapper.contents);
-    }
-  } catch {}
-  // corsproxy.io
-  try {
-    const resp = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
-    if (resp.ok) return resp.json();
-  } catch {}
-  // codetabs proxy
-  try {
-    const resp = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`);
-    if (resp.ok) return resp.json();
-  } catch {}
-  throw new Error('프록시 실패: ' + url);
+  const enc = encodeURIComponent(url);
+
+  // 8초 타임아웃이 있는 fetch
+  function fetchTimeout(proxyUrl) {
+    const ctrl = new AbortController();
+    const id = setTimeout(() => ctrl.abort(), 8000);
+    return fetch(proxyUrl, { signal: ctrl.signal }).finally(() => clearTimeout(id));
+  }
+
+  // 3개 프록시를 병렬로 시도 — 가장 먼저 성공한 결과 사용
+  return Promise.any([
+    async () => {
+      const resp = await fetchTimeout(`https://api.allorigins.win/get?url=${enc}`);
+      if (!resp.ok) throw new Error('not ok');
+      const w = await resp.json();
+      if (!w.contents) throw new Error('no contents');
+      return JSON.parse(w.contents);
+    },
+    async () => {
+      const resp = await fetchTimeout(`https://corsproxy.io/?${enc}`);
+      if (!resp.ok) throw new Error('not ok');
+      return resp.json();
+    },
+    async () => {
+      const resp = await fetchTimeout(`https://api.codetabs.com/v1/proxy?quest=${enc}`);
+      if (!resp.ok) throw new Error('not ok');
+      return resp.json();
+    },
+  ].map(fn => fn()));
 }
 
 async function fetchPricesFromAPI() {
