@@ -310,10 +310,10 @@ function parseBenchmarkCSV(text) {
 
 async function loadBenchmarkCSVs() {
   const paths = [
-    ['../output/sp500_daily.csv', 'sp500'],
-    ['../output/nasdaq100_daily.csv', 'nasdaq'],
-    ['../output/kospi_daily.csv', 'kospi'],
-    ['../output/usdkrw_daily.csv', 'usdkrw'],
+    ['./data/sp500_daily.csv', 'sp500'],
+    ['./data/nasdaq100_daily.csv', 'nasdaq'],
+    ['./data/kospi_daily.csv', 'kospi'],
+    ['./data/usdkrw_daily.csv', 'usdkrw'],
   ];
   for (const [path, target] of paths) {
     try {
