@@ -374,7 +374,7 @@ function computeCashFlowBenchmarkTWR(dailySnapshots, dailyMap, queryDates) {
   function getBenchmarkTWRAt(targetDate) {
     if (targetDate < flowDates[0]) return 0;
 
-    // 현재 위치한 구간 인덱스
+ main
     let periodIdx = 0;
     for (let i = 1; i < flowDates.length; i++) {
       if (flowDates[i] <= targetDate) periodIdx = i;
@@ -386,7 +386,7 @@ function computeCashFlowBenchmarkTWR(dailySnapshots, dailyMap, queryDates) {
     // 완료된 구간들 복리 계산
     for (let i = 0; i < periodIdx; i++) {
       const startPrice = getPrice(flowDates[i]);
-      // 구간 끝 = 다음 flow 직전 마지막 스냅샷 날 (포트폴리오 valueBefore에 대응)
+ main
       const lastBeforeNext = [...snapDates].reverse().find(d => d < flowDates[i + 1]) || flowDates[i];
       const endPrice = getPrice(lastBeforeNext);
       if (startPrice && endPrice && startPrice > 0) twr *= endPrice / startPrice;
