@@ -226,3 +226,67 @@ test('실제 데이터: 종합 보유 종목 검증 (IREN, RKLB, NVDA 포함)', 
     assert.ok(tickers.includes(ticker), `${ticker} 보유 종목에 없음`);
   });
 });
+
+// ── 라이브 CSV 무결성 테스트 ──────────────────────────────────────
+// output/종합거래내역.csv (실제 운영 데이터)를 직접 검증한다.
+// 파서 버그나 중복 추가로 인한 데이터 오염을 조기에 감지하는 목적.
+// 새 계좌/종목이 추가되면 스냅샷 테스트의 기대값을 함께 갱신하라.
+
+const LIVE_CSV_PATH = path.join(__dirname, '../output/종합거래내역.csv');
+const liveTxns = fs.existsSync(LIVE_CSV_PATH)
+  ? parseCSV(fs.readFileSync(LIVE_CSV_PATH, 'utf8'))
+  : null;
+
+function requireLiveData(t) {
+  if (!liveTxns) { t.skip('output/종합거래내역.csv 없음'); return false; }
+  return true;
+}
+
+// parse_namu.py의 DEDUP_KEYS와 동일
+const DEDUP_KEYS = ['거래일자', '유형', '종목코드', '수량', '단가', '금액', '통화', '증권사', '계좌번호'];
+
+test('라이브 CSV: 중복 거래 없음', (t) => {
+  if (!requireLiveData(t)) return;
+  const seen = new Set();
+  const dups = [];
+  liveTxns.forEach(tx => {
+    const key = DEDUP_KEYS.map(k => String(tx[k] ?? '')).join('|');
+    if (seen.has(key)) dups.push(key);
+    else seen.add(key);
+  });
+  assert.equal(dups.length, 0,
+    `중복 거래 ${dups.length}건 발견 (parse_namu.py 재실행 후 dedup 미적용):\n` +
+    dups.slice(0, 3).join('\n'));
+});
+
+test('라이브 CSV: 전체 계좌 음수 잔고 없음', (t) => {
+  if (!requireLiveData(t)) return;
+  const result = computePortfolio(liveTxns, {}, 1450);
+  result.currentHoldings.forEach(h => {
+    assert.ok(h.qty >= 0, `${h.ticker} qty 음수: ${h.qty}`);
+  });
+});
+
+// [202-02-292788] 계좌 스냅샷
+// 새 거래 추가 시 아래 기대값을 함께 갱신하라.
+test('라이브 CSV [202-02]: IREN qty = 61, CRCL qty = 9', (t) => {
+  if (!requireLiveData(t)) return;
+  const txns02 = liveTxns.filter(tx => tx.계좌번호 === '202-02-292788');
+  if (txns02.length === 0) { t.skip('202-02-292788 계좌 데이터 없음'); return; }
+  const result = computePortfolio(txns02, {}, 1450);
+
+  result.currentHoldings.forEach(h => {
+    assert.ok(h.qty >= 0, `[202-02] ${h.ticker} qty 음수: ${h.qty}`);
+  });
+
+  const iren = result.currentHoldings.find(h => h.ticker === 'IREN');
+  assert.ok(iren, '[202-02] IREN 보유 종목 존재');
+  assert.equal(iren.qty, 61, `[202-02] IREN qty: 예상 61, 실제 ${iren.qty}`);
+
+  const crcl = result.currentHoldings.find(h => h.ticker === 'CRCL');
+  assert.ok(crcl, '[202-02] CRCL 보유 종목 존재');
+  assert.equal(crcl.qty, 9, `[202-02] CRCL qty: 예상 9, 실제 ${crcl.qty}`);
+
+  const sgov = result.currentHoldings.find(h => h.ticker === 'SGOV');
+  assert.equal(sgov, undefined, '[202-02] SGOV 전량 매도 후 잔고 없어야 함');
+});
