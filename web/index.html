@@ -133,6 +133,16 @@ tr:last-child td { border-bottom: none; }
 
 /* Number align */
 .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Account selector */
+.account-selector { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.pill {
+  padding: 5px 14px; border-radius: 20px; border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text-secondary);
+  font-size: 12px; cursor: pointer;
+}
+.pill.active { background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; font-weight: 600; }
+.pill:hover:not(.active) { border-color: var(--accent-blue); color: var(--text-primary); }
 </style>
 </head>
 <body>
@@ -154,6 +164,7 @@ tr:last-child td { border-bottom: none; }
 <main>
   <!-- Tab 1: 계좌현황 -->
   <section id="tab-overview" class="active">
+    <div id="account-selector" class="account-selector"></div>
     <div class="cards" id="overview-cards">
       <div class="card"><div class="card-label">평가금액</div><div class="card-value" id="v-total">-</div><div class="card-sub" id="v-total-sub"></div></div>
       <div class="card"><div class="card-label">평가손익</div><div class="card-value" id="v-profit">-</div><div class="card-sub" id="v-profit-sub"></div></div>
@@ -224,6 +235,8 @@ let currentPrices = { ...SAMPLE_PRICES };
 let currentFX = SAMPLE_FX;
 let charts = {};
 let benchmarkLoaded = false;
+let selectedAccount = '전체';
+const ACCOUNT_COLORS = ['#3fb950', '#d29922', '#f85149', '#bc8cff'];
 
 // ── CSV 파싱 ────────────────────────────────────────────────────
 function parseCSV(text) {
@@ -325,12 +338,50 @@ const fmtUSD = n => '$' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const fmtPct = n => (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
 const fmtKRW = n => '₩' + fmt(n);
 
+function getAccounts(txns) {
+  const set = new Set();
+  txns.forEach(tx => { if (tx.증권사 && tx.계좌번호) set.add(`${tx.증권사}-${tx.계좌번호}`); });
+  return [...set].sort();
+}
+function filterTxns(txns, account) {
+  if (account === '전체') return txns;
+  return txns.filter(tx => `${tx.증권사}-${tx.계좌번호}` === account);
+}
+
+function buildAccountSelector(txns) {
+  const container = document.getElementById('account-selector');
+  const accounts = getAccounts(txns);
+  if (accounts.length <= 1) { container.innerHTML = ''; return; }
+  const all = ['전체', ...accounts];
+  container.innerHTML = all.map(a =>
+    `<button class="pill${a === selectedAccount ? ' active' : ''}" data-account="${a}">${a}</button>`
+  ).join('');
+  container.querySelectorAll('.pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectedAccount = btn.dataset.account;
+      container.querySelectorAll('.pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const filtered = filterTxns(rawTransactions, selectedAccount);
+      const p = computePortfolio(filtered, currentPrices, currentFX, benchmarkFX);
+      renderCards(p);
+      renderHoldings(p.currentHoldings);
+      renderPnLChart(p);
+    });
+  });
+}
+
 function renderAll(portfolio) {
   document.getElementById('empty-state').style.display = 'none';
-  renderCards(portfolio);
-  renderHoldings(portfolio.currentHoldings);
+  buildAccountSelector(rawTransactions);
+  // For cards/holdings, use account-filtered portfolio
+  const filteredTxns = filterTxns(rawTransactions, selectedAccount);
+  const filteredPortfolio = selectedAccount === '전체'
+    ? portfolio
+    : computePortfolio(filteredTxns, currentPrices, currentFX, benchmarkFX);
+  renderCards(filteredPortfolio);
+  renderHoldings(filteredPortfolio.currentHoldings);
   renderTransactions(rawTransactions);
-  renderCharts(portfolio);
+  renderCharts(portfolio, rawTransactions);
   renderPerformance(portfolio);
 }
 
@@ -396,27 +447,8 @@ function destroyChart(key) {
   if (charts[key]) { charts[key].destroy(); delete charts[key]; }
 }
 
-function renderCharts(p) {
-  const labels = p.monthlyTrend.map(m => m.month);
-
-  // Chart 1: 월별 계좌 추세
-  destroyChart('trend');
-  charts.trend = new Chart(document.getElementById('chart-trend'), {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        { label: '평가액', data: p.monthlyTrend.map(m => Math.round(m.valuation)), borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.1)', fill: true, tension: 0.3 },
-        { label: '원금', data: p.monthlyTrend.map(m => Math.round(m.principal)), borderColor: '#8b949e', borderDash: [5,5], fill: false, tension: 0.3 }
-      ]
-    },
-    options: {
-      responsive: true, plugins: { legend: { position: 'top' } },
-      scales: { y: { ticks: { callback: v => (v/10000).toFixed(0) + '만' } } }
-    }
-  });
-
-  // Chart 2: 월별 손익
+function renderPnLChart(p) {
+  const labels = p.monthlyPnL.map(m => m.month);
   destroyChart('pnl');
   const pnlData = p.monthlyPnL.map(m => Math.round(m.pnl));
   charts.pnl = new Chart(document.getElementById('chart-pnl'), {
@@ -434,6 +466,51 @@ function renderCharts(p) {
       scales: { y: { ticks: { callback: v => (v/10000).toFixed(0) + '만' } } }
     }
   });
+}
+
+function renderCharts(p, allTxns) {
+  const labels = p.monthlyTrend.map(m => m.month);
+
+  // 계좌별 월별 평가액 계산 (2개 이상 계좌일 때만)
+  const accounts = allTxns ? getAccounts(allTxns) : [];
+  const accountDatasets = accounts.length > 1 ? accounts.map((acc, i) => {
+    const ap = computePortfolio(filterTxns(allTxns, acc), currentPrices, currentFX, benchmarkFX);
+    const apMap = {};
+    ap.monthlyTrend.forEach(m => { apMap[m.month] = Math.round(m.valuation); });
+    return {
+      label: acc,
+      data: labels.map(l => apMap[l] ?? null),
+      borderColor: ACCOUNT_COLORS[i % ACCOUNT_COLORS.length],
+      borderDash: [4, 4],
+      backgroundColor: 'transparent',
+      fill: false, tension: 0.3, pointRadius: 1, spanGaps: true
+    };
+  }) : [];
+
+  // Chart 1: 월별 계좌 추세 (합산 + 계좌별)
+  destroyChart('trend');
+  charts.trend = new Chart(document.getElementById('chart-trend'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: '합산', data: p.monthlyTrend.map(m => Math.round(m.valuation)), borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.1)', fill: true, tension: 0.3, pointRadius: 2 },
+        { label: '원금', data: p.monthlyTrend.map(m => Math.round(m.principal)), borderColor: '#8b949e', borderDash: [5,5], fill: false, tension: 0.3, pointRadius: 0 },
+        ...accountDatasets
+      ]
+    },
+    options: {
+      responsive: true, plugins: { legend: { position: 'top' } },
+      scales: { y: { ticks: { callback: v => (v/10000).toFixed(0) + '만' } } }
+    }
+  });
+
+  // Chart 2: 월별 손익 (선택 계좌 기준)
+  const filteredTxns = allTxns ? filterTxns(allTxns, selectedAccount) : null;
+  const pnlPortfolio = (selectedAccount !== '전체' && filteredTxns)
+    ? computePortfolio(filteredTxns, currentPrices, currentFX, benchmarkFX)
+    : p;
+  renderPnLChart(pnlPortfolio);
 }
 
 function renderPerformance(p) {
@@ -753,6 +830,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // 데이터 로드
   async function loadData(txns) {
     rawTransactions = txns;
+    selectedAccount = '전체';
     if (!benchmarkLoaded) await loadBenchmarkCSVs();
     const portfolio = computePortfolio(txns, currentPrices, currentFX, benchmarkFX);
     renderAll(portfolio);
