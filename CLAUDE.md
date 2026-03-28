@@ -74,3 +74,35 @@ gh issue close 번호 --comment "해결 내용"
 # 이슈 목록 확인
 gh issue list
 ```
+
+---
+
+## 테스트
+
+### 포트폴리오 계산 엔진 테스트
+
+핵심 계산 로직(`computePortfolio`)의 정확성을 검증하는 테스트.
+
+```bash
+node tests/test_portfolio.js
+```
+
+- 외부 의존성 없음 (Node.js 18+ 내장 `node:test` 사용)
+- 고정 데이터셋: `tests/fixtures/종합거래내역.csv` (실제 CSV 변경에 무관)
+- 총 14개 테스트: 기본 매수/매도, 액면분할, 감자출고, 같은 날 처리, 실제 데이터 검증
+
+### 테스트 실행 시점
+
+- `computePortfolio` 또는 `web/portfolio.js` 로직 변경 시 반드시 실행
+- 새 기능 추가 후 기존 기능 회귀 여부 확인 시
+- 데이터 파싱 로직(`parse_namu.py`) 변경 후 계산 결과 검증 시
+
+### 고정 데이터셋 업데이트
+
+거래 데이터가 크게 변경되어 기대값이 달라지면 fixture를 갱신하라.
+
+```bash
+cp output/종합거래내역.csv tests/fixtures/종합거래내역.csv
+```
+
+기대값(avgCost 등)도 함께 업데이트한 뒤 커밋하라.
