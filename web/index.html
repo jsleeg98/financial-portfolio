@@ -904,8 +904,8 @@ async function fetchPricesFromAPI() {
     const t = tx.종목코드;
     if (!t) return;
     if (!holdings[t]) holdings[t] = 0;
-    if (tx.유형 === '매수') holdings[t] += tx.수량;
-    else if (tx.유형 === '매도') holdings[t] -= tx.수량;
+    if (tx.유형 === '매수' || tx.유형 === '입고') holdings[t] += tx.수량;
+    else if (tx.유형 === '매도' || tx.유형 === '출고' || tx.유형 === '감자출고') holdings[t] -= tx.수량;
     if (tx.통화) tickerCurrency[t] = tx.통화;
   });
   const heldTickers = Object.keys(holdings).filter(t => holdings[t] > 0.0001);
