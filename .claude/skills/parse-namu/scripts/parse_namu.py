@@ -55,6 +55,7 @@ ISIN_TO_TICKER = {
     "US8552441094": "SBUX",     # 스타벅스
     "US74347X8314": "TQQQ",     # 프로셰어즈 QQQ 3배 ETF
     "US1725731079": "CRCL",     # 써클 인터넷 그룹 (Circle Internet Group)
+    "US02079K3059": "GOOGL",    # 알파벳 Class A
 }
 
 # 종합파일 ISIN 추출 패턴
