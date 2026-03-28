@@ -201,8 +201,9 @@ function computePortfolio(txns, prices, fx) {
   const dailySnapshots = {};
   const twrHoldings = {};
   let twrCashUSD = 0, twrCashKRW = 0;
-  const twrPeriods = []; // [{ startValue, endValue, externalFlow }]
+  const twrPeriods = []; // [{ startValue, endValue }]
   let twrPrevValue = 0;
+  let runningTwr = 1.0; // 완료된 구간의 누적 수익률 곱
 
   // 거래일별로 그룹화
   const dateGroups = {};
@@ -211,11 +212,14 @@ function computePortfolio(txns, prices, fx) {
     dateGroups[tx.거래일자].push(tx);
   });
 
+  // TWR 전용 단가 추적 (거래일별로 업데이트; 전역 lastTxPrice와 독립)
+  const twrPriceMap = {};
+
   function calcPortfolioValue() {
     let val = 0;
     Object.entries(twrHoldings).forEach(([t, h]) => {
       if (h.qty > 0) {
-        const p = getPrice(t);
+        const p = twrPriceMap[t] || 0;
         val += h.currency === 'USD' ? h.qty * p * fx : h.qty * p;
       }
     });
@@ -226,10 +230,18 @@ function computePortfolio(txns, prices, fx) {
   const sortedDates = Object.keys(dateGroups).sort();
   sortedDates.forEach(date => {
     const dayTxns = dateGroups[date];
-    // 거래 전 포트폴리오 가치 (외부 유입이 있는 날: 구간 종료점)
+
+    // Step 1: 오늘 거래 단가로 가격 먼저 업데이트 (가격 변동 반영)
+    dayTxns.forEach(tx => {
+      if (tx.종목코드 && tx.단가 > 0 && (tx.유형 === '매수' || tx.유형 === '매도')) {
+        twrPriceMap[tx.종목코드] = tx.단가;
+      }
+    });
+
+    // Step 2: 업데이트된 가격으로 거래 전 포트폴리오 가치 계산
     const valueBefore = calcPortfolioValue();
 
-    // 이 날의 외부 자금 유입/유출
+    // Step 3: 수량/현금 업데이트 및 외부유입 계산
     let externalFlow = 0;
 
     dayTxns.forEach(tx => {
@@ -241,7 +253,6 @@ function computePortfolio(txns, prices, fx) {
       if (tx.유형 === '매수' && ticker) {
         if (!twrHoldings[ticker]) twrHoldings[ticker] = { qty: 0, currency };
         twrHoldings[ticker].qty += tx.수량;
-        // 매수 = 외부에서 돈이 들어와서 주식 구매 (외부유입)
         const costKRW = currency === 'KRW' ? amount : (amountKRW > 0 ? amountKRW : amount * (tx.환율 || fx));
         externalFlow += costKRW;
       } else if (tx.유형 === '매도' && ticker) {
@@ -249,7 +260,6 @@ function computePortfolio(txns, prices, fx) {
           twrHoldings[ticker].qty -= tx.수량;
           if (twrHoldings[ticker].qty < 0.0001) twrHoldings[ticker].qty = 0;
         }
-        // 매도대금은 계좌에 남음 (현금으로)
         if (currency === 'USD') twrCashUSD += amount;
         else twrCashKRW += amount;
       } else if (tx.유형 === '배당') {
@@ -267,20 +277,26 @@ function computePortfolio(txns, prices, fx) {
 
     const valueAfter = calcPortfolioValue();
 
-    // TWR 구간 기록
+    // Step 4: 외부유입 시 이전 구간 종료 → runningTwr 업데이트
     if (twrPrevValue > 0 && externalFlow > 0) {
-      // 외부 유입 전까지의 수익률
+      runningTwr *= valueBefore > 0 ? (valueBefore / twrPrevValue) : 1;
       twrPeriods.push({ startValue: twrPrevValue, endValue: valueBefore });
     }
 
     twrPrevValue = externalFlow > 0 ? valueAfter : (twrPrevValue > 0 ? twrPrevValue : valueAfter);
     if (twrPrevValue === 0 && valueAfter > 0) twrPrevValue = valueAfter;
 
-    // 일별 스냅샷 (수익률 비교 차트용)
+    // Step 5: 스냅샷 저장 — running TWR(%) 포함
+    // snapTwr = 완료된 구간 누적 × 현재 구간 진행률
+    const snapTwr = twrPrevValue > 0
+      ? (runningTwr * (valueAfter / twrPrevValue) - 1) * 100
+      : 0;
+
     dailySnapshots[date] = {
       holdings: JSON.parse(JSON.stringify(twrHoldings)),
       cashUSD: twrCashUSD, cashKRW: twrCashKRW,
-      portfolioValue: valueAfter
+      portfolioValue: valueAfter,
+      twr: snapTwr
     };
   });
 
