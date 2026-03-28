@@ -604,7 +604,8 @@ function renderPerformance(p) {
     return snap;
   }
 
-  // 현금흐름 반영 벤치마크 TWR (포트폴리오와 동일한 구간 경계 사용)
+
+  // 현금흐름 반영 벤치마크 TWR (포트폴리오와 동일한 투자 타이밍 가정)
   const sp500Returns = computeCashFlowBenchmarkTWR(p.dailySnapshots, benchmarkSP500, monthEnds.map(m => m.date));
   const nasdaqReturns = computeCashFlowBenchmarkTWR(p.dailySnapshots, benchmarkNasdaq, monthEnds.map(m => m.date));
   const kospiReturns = computeCashFlowBenchmarkTWR(p.dailySnapshots, benchmarkKospi, monthEnds.map(m => m.date));
@@ -638,7 +639,7 @@ function renderPerformance(p) {
     return (mTo / mFrom - 1) * 100;
   }
 
-  // 벤치마크 구간 수익률 (현금흐름 반영 TWR 방식)
+  // 벤치마크 구간 수익률 (현금흐름 반영 TWR 기반, getPortfolioSubReturn과 대칭)
   function getBenchmarkSubReturn(bmap, fromDateStr) {
     if (!Object.keys(bmap).length) return null;
     const twrFrom = computeCashFlowBenchmarkTWR(p.dailySnapshots, bmap, [fromDateStr])[0]?.returnPct ?? 0;
