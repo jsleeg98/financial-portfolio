@@ -76,6 +76,7 @@ section.active { display: block; }
 .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
 @media (min-width: 768px) { .cards { grid-template-columns: repeat(4, 1fr); } }
 .cards-3 { grid-template-columns: 1fr 1fr 1fr; }
+.cards-4 { grid-template-columns: repeat(4, 1fr); }
 .card {
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: 10px; padding: 16px;
@@ -166,10 +167,11 @@ tr:last-child td { border-bottom: none; }
 
   <!-- Tab 2: 수익률 비교 -->
   <section id="tab-performance">
-    <div class="cards cards-3" id="perf-cards">
+    <div class="cards cards-4" id="perf-cards">
       <div class="card"><div class="card-label">내 포트폴리오</div><div class="card-value" id="v-my-ret">-</div></div>
       <div class="card"><div class="card-label">S&P 500</div><div class="card-value" id="v-sp500">-</div></div>
       <div class="card"><div class="card-label">NASDAQ 100</div><div class="card-value" id="v-nasdaq">-</div></div>
+      <div class="card"><div class="card-label">KOSPI</div><div class="card-value" id="v-kospi">-</div></div>
     </div>
     <div class="chart-box"><h3>누적수익률 비교</h3><div class="chart-wrap"><canvas id="chart-compare"></canvas></div></div>
     <div class="chart-box"><h3>수익률 GAP</h3><div class="chart-wrap"><canvas id="chart-gap"></canvas></div></div>
@@ -199,6 +201,7 @@ const SAMPLE_FX = 1450;
 // { 'YYYY-MM-DD': close, ... }
 let benchmarkSP500 = {};
 let benchmarkNasdaq = {};
+let benchmarkKospi = {};
 
 let rawTransactions = [];
 let currentPrices = { ...SAMPLE_PRICES };
@@ -278,6 +281,7 @@ async function loadBenchmarkCSVs() {
   const paths = [
     ['../output/sp500_daily.csv', 'sp500'],
     ['../output/nasdaq100_daily.csv', 'nasdaq'],
+    ['../output/kospi_daily.csv', 'kospi'],
   ];
   for (const [path, target] of paths) {
     try {
@@ -287,12 +291,13 @@ async function loadBenchmarkCSVs() {
       const map = parseBenchmarkCSV(text);
       if (Object.keys(map).length > 0) {
         if (target === 'sp500') benchmarkSP500 = map;
-        else benchmarkNasdaq = map;
+        else if (target === 'nasdaq') benchmarkNasdaq = map;
+        else if (target === 'kospi') benchmarkKospi = map;
       }
     } catch {}
   }
   benchmarkLoaded = Object.keys(benchmarkSP500).length > 0;
-  if (benchmarkLoaded) console.log(`벤치마크 로드: SP500 ${Object.keys(benchmarkSP500).length}일, NASDAQ ${Object.keys(benchmarkNasdaq).length}일`);
+  if (benchmarkLoaded) console.log(`벤치마크 로드: SP500 ${Object.keys(benchmarkSP500).length}일, NASDAQ ${Object.keys(benchmarkNasdaq).length}일, KOSPI ${Object.keys(benchmarkKospi).length}일`);
 }
 
 // ── 종목 통화 판별 ─────────────────────────────────────────────
@@ -781,6 +786,7 @@ function renderPerformance(p) {
   const baseDate = p.firstTxDate;
   const sp500Returns = computeBenchmarkReturns(benchmarkSP500, monthEnds.map(m => m.date), baseDate);
   const nasdaqReturns = computeBenchmarkReturns(benchmarkNasdaq, monthEnds.map(m => m.date), baseDate);
+  const kospiReturns = computeBenchmarkReturns(benchmarkKospi, monthEnds.map(m => m.date), baseDate);
 
   // 내 포트폴리오 월별 수익률 (TWR 방식: 포트폴리오 가치 = 주식 시가 + 현금)
   // 첫 거래일의 포트폴리오 가치를 기준(0%)으로 사용
@@ -798,8 +804,9 @@ function renderPerformance(p) {
   const lastMy = myReturns[myReturns.length - 1] || 0;
   const lastSP = sp500Returns.length > 0 ? sp500Returns[sp500Returns.length - 1].returnPct : 0;
   const lastNQ = nasdaqReturns.length > 0 ? nasdaqReturns[nasdaqReturns.length - 1].returnPct : 0;
+  const lastKS = kospiReturns.length > 0 ? kospiReturns[kospiReturns.length - 1].returnPct : 0;
 
-  setReturnCards(lastMy, lastSP, lastNQ);
+  setReturnCards(lastMy, lastSP, lastNQ, lastKS);
 
   // Chart 3: 누적수익률 비교
   destroyChart('compare');
@@ -810,7 +817,8 @@ function renderPerformance(p) {
       datasets: [
         { label: '내 포트폴리오', data: myReturns, borderColor: '#58a6ff', tension: 0.3, pointRadius: 2 },
         { label: 'S&P 500', data: sp500Returns.map(r => r.returnPct), borderColor: '#d29922', tension: 0.3, pointRadius: 2 },
-        { label: 'NASDAQ 100', data: nasdaqReturns.map(r => r.returnPct), borderColor: '#bc8cff', tension: 0.3, pointRadius: 2 }
+        { label: 'NASDAQ 100', data: nasdaqReturns.map(r => r.returnPct), borderColor: '#bc8cff', tension: 0.3, pointRadius: 2 },
+        ...(Object.keys(benchmarkKospi).length > 0 ? [{ label: 'KOSPI', data: kospiReturns.map(r => r.returnPct), borderColor: '#3fb950', tension: 0.3, pointRadius: 2 }] : [])
       ]
     },
     options: {
@@ -827,7 +835,8 @@ function renderPerformance(p) {
       labels,
       datasets: [
         { label: 'vs S&P500', data: labels.map((m, i) => +(myReturns[i] - sp500Returns[i].returnPct).toFixed(2)), backgroundColor: 'rgba(88,166,255,0.7)' },
-        { label: 'vs NASDAQ', data: labels.map((m, i) => +(myReturns[i] - nasdaqReturns[i].returnPct).toFixed(2)), backgroundColor: 'rgba(188,140,255,0.7)' }
+        { label: 'vs NASDAQ', data: labels.map((m, i) => +(myReturns[i] - nasdaqReturns[i].returnPct).toFixed(2)), backgroundColor: 'rgba(188,140,255,0.7)' },
+        ...(Object.keys(benchmarkKospi).length > 0 ? [{ label: 'vs KOSPI', data: labels.map((m, i) => +(myReturns[i] - kospiReturns[i].returnPct).toFixed(2)), backgroundColor: 'rgba(63,185,80,0.7)' }] : [])
       ]
     },
     options: {
@@ -837,7 +846,7 @@ function renderPerformance(p) {
   });
 }
 
-function setReturnCards(my, sp, nq) {
+function setReturnCards(my, sp, nq, ks = 0) {
   const myEl = document.getElementById('v-my-ret');
   myEl.textContent = fmtPct(my);
   myEl.className = 'card-value ' + (my >= 0 ? 'positive' : 'negative');
@@ -847,6 +856,11 @@ function setReturnCards(my, sp, nq) {
   const nqEl = document.getElementById('v-nasdaq');
   nqEl.textContent = fmtPct(nq);
   nqEl.className = 'card-value ' + (nq >= 0 ? 'positive' : 'negative');
+  const ksEl = document.getElementById('v-kospi');
+  if (ksEl) {
+    ksEl.textContent = ks !== 0 ? fmtPct(ks) : '-';
+    ksEl.className = 'card-value ' + (ks >= 0 ? 'positive' : 'negative');
+  }
 }
 
 function renderPerformanceMonthly(p) {
@@ -969,6 +983,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // 데이터 로드
   async function loadData(txns) {
     rawTransactions = txns;
+    if (!benchmarkLoaded) await loadBenchmarkCSVs();
     const portfolio = computePortfolio(txns, currentPrices, currentFX);
     renderAll(portfolio);
   }

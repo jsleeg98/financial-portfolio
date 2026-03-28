@@ -21,6 +21,7 @@ OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
 BENCHMARKS = {
     "sp500": {"symbol": "^GSPC", "file": "sp500_daily.csv"},
     "nasdaq100": {"symbol": "^NDX", "file": "nasdaq100_daily.csv"},
+    "kospi": {"symbol": "^KS11", "file": "kospi_daily.csv"},
 }
 
 DEFAULT_START = "2019-12-01"
