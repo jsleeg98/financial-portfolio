@@ -95,7 +95,8 @@ section.active { display: block; }
 .chart-box h3 { font-size: 14px; color: var(--text-secondary); margin-bottom: 12px; }
 .chart-wrap { position: relative; width: 100%; height: 280px; }
 @media (min-width: 768px) { .chart-wrap { height: 340px; } }
-.chart-wrap-pie { position: relative; width: 100%; height: 320px; }
+.chart-wrap-pie { position: relative; width: 100%; height: 460px; }
+@media (min-width: 600px) { .chart-wrap-pie { height: 340px; } }
 
 /* Tables */
 .table-box {
@@ -437,11 +438,11 @@ function renderHoldingsPie(holdings) {
       maintainAspectRatio: false,
       plugins: {
         legend: {
-          position: 'right',
+          position: window.innerWidth < 600 ? 'bottom' : 'right',
           labels: {
             color: '#ffffff',
-            font: { size: 13, weight: '500' },
-            padding: 16,
+            font: { size: window.innerWidth < 600 ? 12 : 13, weight: '500' },
+            padding: window.innerWidth < 600 ? 10 : 16,
             boxWidth: 14,
             boxHeight: 14,
             generateLabels: (chart) => chart.data.labels.map((label, i) => ({
