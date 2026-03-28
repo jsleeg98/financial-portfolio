@@ -168,13 +168,28 @@ tr:last-child td { border-bottom: none; }
   <!-- Tab 2: 수익률 비교 -->
   <section id="tab-performance">
     <div class="cards cards-4" id="perf-cards">
-      <div class="card"><div class="card-label">내 포트폴리오</div><div class="card-value" id="v-my-ret">-</div></div>
-      <div class="card"><div class="card-label">S&P 500</div><div class="card-value" id="v-sp500">-</div></div>
-      <div class="card"><div class="card-label">NASDAQ 100</div><div class="card-value" id="v-nasdaq">-</div></div>
-      <div class="card"><div class="card-label">KOSPI</div><div class="card-value" id="v-kospi">-</div></div>
+      <div class="card"><div class="card-label">내 포트폴리오 (누적)</div><div class="card-value" id="v-my-ret">-</div></div>
+      <div class="card"><div class="card-label">S&P 500 (누적)</div><div class="card-value" id="v-sp500">-</div></div>
+      <div class="card"><div class="card-label">NASDAQ 100 (누적)</div><div class="card-value" id="v-nasdaq">-</div></div>
+      <div class="card"><div class="card-label">KOSPI (누적)</div><div class="card-value" id="v-kospi">-</div></div>
     </div>
-    <div class="chart-box"><h3>누적수익률 비교</h3><div class="chart-wrap"><canvas id="chart-compare"></canvas></div></div>
-    <div class="chart-box"><h3>수익률 GAP</h3><div class="chart-wrap"><canvas id="chart-gap"></canvas></div></div>
+    <div class="table-box">
+      <h3>기간별 수익률 비교</h3>
+      <div class="table-scroll">
+        <table id="tbl-periods">
+          <thead><tr><th>기간</th><th class="num">내 포트폴리오</th><th class="num">S&amp;P 500</th><th class="num">NASDAQ 100</th><th class="num">KOSPI</th></tr></thead>
+          <tbody>
+            <tr id="perf-row-cumulative"><td>누적</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num">-</td></tr>
+            <tr id="perf-row-3m"><td>3개월</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num">-</td></tr>
+            <tr id="perf-row-ytd"><td>올해(YTD)</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num">-</td></tr>
+            <tr id="perf-row-cagr"><td>연평균(CAGR)</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num">-</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="chart-box"><h3>기간별 수익률 비교</h3><div class="chart-wrap"><canvas id="chart-period-bar"></canvas></div></div>
+    <div class="chart-box"><h3>누적수익률 추이</h3><div class="chart-wrap"><canvas id="chart-compare"></canvas></div></div>
+    <div class="chart-box"><h3>수익률 GAP (vs 지수)</h3><div class="chart-wrap"><canvas id="chart-gap"></canvas></div></div>
   </section>
 
   <!-- Tab 3: 거래내역 -->
@@ -474,6 +489,64 @@ function renderPerformance(p) {
 
   setReturnCards(lastMy, lastSP, lastNQ, lastKS);
 
+  // ── 기간별 수익률 계산 ──────────────────────────────────────────
+  const today = new Date();
+  const lastSnapDate = snapshotDates[snapshotDates.length - 1] || p.firstTxDate;
+
+  // 포트폴리오 구간 수익률: TWR(to) / TWR(from) - 1
+  function getPortfolioSubReturn(fromDateStr) {
+    const snapFrom = getSnapshotAt(fromDateStr);
+    const snapTo = getSnapshotAt(lastSnapDate);
+    if (!snapFrom || !snapTo) return null;
+    const mFrom = 1 + (snapFrom.twr ?? 0) / 100;
+    const mTo   = 1 + (snapTo.twr   ?? 0) / 100;
+    return (mTo / mFrom - 1) * 100;
+  }
+
+  // 벤치마크 구간 수익률
+  function getBenchmarkSubReturn(bmap, fromDateStr) {
+    if (!Object.keys(bmap).length) return null;
+    return computeBenchmarkReturns(bmap, [lastSnapDate], fromDateStr)[0]?.returnPct ?? null;
+  }
+
+  const d3mStr  = (() => { const d = new Date(today); d.setMonth(d.getMonth() - 3); return d.toISOString().slice(0, 10); })();
+  const dYtdStr = today.getFullYear() + '-01-01';
+  const years   = (today - new Date(p.firstTxDate)) / (365.25 * 24 * 3600 * 1000);
+  const calcCAGR = ret => (ret === null || years < 0.1) ? null : (Math.pow(1 + ret / 100, 1 / years) - 1) * 100;
+
+  const periodData = {
+    cumulative: { my: lastMy,                         sp: lastSP,                                        nq: lastNQ,                                        ks: lastKS },
+    m3:         { my: getPortfolioSubReturn(d3mStr),  sp: getBenchmarkSubReturn(benchmarkSP500, d3mStr),  nq: getBenchmarkSubReturn(benchmarkNasdaq, d3mStr),  ks: getBenchmarkSubReturn(benchmarkKospi, d3mStr) },
+    ytd:        { my: getPortfolioSubReturn(dYtdStr), sp: getBenchmarkSubReturn(benchmarkSP500, dYtdStr), nq: getBenchmarkSubReturn(benchmarkNasdaq, dYtdStr), ks: getBenchmarkSubReturn(benchmarkKospi, dYtdStr) },
+    cagr:       { my: calcCAGR(lastMy),               sp: calcCAGR(lastSP),                               nq: calcCAGR(lastNQ),                               ks: calcCAGR(lastKS) }
+  };
+
+  fillPerfRow('perf-row-cumulative', periodData.cumulative.my, periodData.cumulative.sp, periodData.cumulative.nq, periodData.cumulative.ks);
+  fillPerfRow('perf-row-3m',         periodData.m3.my,         periodData.m3.sp,         periodData.m3.nq,         periodData.m3.ks);
+  fillPerfRow('perf-row-ytd',        periodData.ytd.my,        periodData.ytd.sp,        periodData.ytd.nq,        periodData.ytd.ks);
+  fillPerfRow('perf-row-cagr',       periodData.cagr.my,       periodData.cagr.sp,       periodData.cagr.nq,       periodData.cagr.ks);
+
+  // Chart: 기간별 수익률 바 차트
+  const periodKeys = ['cumulative', 'm3', 'ytd', 'cagr'];
+  destroyChart('period-bar');
+  charts['period-bar'] = new Chart(document.getElementById('chart-period-bar'), {
+    type: 'bar',
+    data: {
+      labels: ['누적', '3개월', '올해(YTD)', '연평균(CAGR)'],
+      datasets: [
+        { label: '내 포트폴리오', data: periodKeys.map(k => periodData[k].my), backgroundColor: 'rgba(88,166,255,0.8)' },
+        { label: 'S&P 500',       data: periodKeys.map(k => periodData[k].sp), backgroundColor: 'rgba(210,153,34,0.8)' },
+        { label: 'NASDAQ 100',    data: periodKeys.map(k => periodData[k].nq), backgroundColor: 'rgba(188,140,255,0.8)' },
+        ...(Object.keys(benchmarkKospi).length > 0 ? [{ label: 'KOSPI', data: periodKeys.map(k => periodData[k].ks), backgroundColor: 'rgba(63,185,80,0.8)' }] : [])
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'top' } },
+      scales: { y: { ticks: { callback: v => v != null ? v.toFixed(1) + '%' : '' } } }
+    }
+  });
+
   // Chart 3: 누적수익률 비교
   destroyChart('compare');
   charts.compare = new Chart(document.getElementById('chart-compare'), {
@@ -512,6 +585,18 @@ function renderPerformance(p) {
   });
 }
 
+function fillPerfRow(rowId, my, sp, nq, ks) {
+  const row = document.getElementById(rowId);
+  if (!row) return;
+  [my, sp, nq, ks].forEach((v, i) => {
+    const td = row.cells[i + 1];
+    if (!td) return;
+    if (v === null || v === undefined || isNaN(v)) { td.textContent = '-'; td.className = 'num'; return; }
+    td.textContent = fmtPct(v);
+    td.className = 'num ' + (v >= 0 ? 'positive' : 'negative');
+  });
+}
+
 function setReturnCards(my, sp, nq, ks = 0) {
   const myEl = document.getElementById('v-my-ret');
   myEl.textContent = fmtPct(my);
@@ -534,6 +619,25 @@ function renderPerformanceMonthly(p) {
   const myReturns = p.cumulativeReturn.map(c => c.returnPct);
   const lastMy = myReturns[myReturns.length - 1] || 0;
   setReturnCards(lastMy, 0, 0);
+
+  // 기간별 테이블 — 포트폴리오 컬럼만 (벤치마크 없음)
+  const todayM = new Date();
+  const yearsM = p.firstTxDate ? (todayM - new Date(p.firstTxDate)) / (365.25 * 24 * 3600 * 1000) : 0;
+  function monthSubReturn(fromDateStr) {
+    const fromMonth = fromDateStr.slice(0, 7);
+    const idx = p.cumulativeReturn.findIndex(c => c.month >= fromMonth);
+    if (idx <= 0) return null;
+    const base = p.cumulativeReturn[idx - 1].returnPct;
+    return ((1 + lastMy / 100) / (1 + base / 100) - 1) * 100;
+  }
+  const d3mStrM  = (() => { const d = new Date(todayM); d.setMonth(d.getMonth() - 3); return d.toISOString().slice(0, 10); })();
+  const dYtdStrM = todayM.getFullYear() + '-01-01';
+  const cagrM    = yearsM >= 0.1 ? (Math.pow(1 + lastMy / 100, 1 / yearsM) - 1) * 100 : null;
+  fillPerfRow('perf-row-cumulative', lastMy,                  null, null, null);
+  fillPerfRow('perf-row-3m',         monthSubReturn(d3mStrM), null, null, null);
+  fillPerfRow('perf-row-ytd',        monthSubReturn(dYtdStrM),null, null, null);
+  fillPerfRow('perf-row-cagr',       cagrM,                   null, null, null);
+  destroyChart('period-bar');
 
   destroyChart('compare');
   charts.compare = new Chart(document.getElementById('chart-compare'), {
