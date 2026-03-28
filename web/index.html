@@ -94,6 +94,7 @@ section.active { display: block; }
 .chart-box h3 { font-size: 14px; color: var(--text-secondary); margin-bottom: 12px; }
 .chart-wrap { position: relative; width: 100%; height: 280px; }
 @media (min-width: 768px) { .chart-wrap { height: 340px; } }
+.chart-wrap-pie { position: relative; width: 100%; height: 300px; max-width: 480px; margin: 0 auto; }
 
 /* Tables */
 .table-box {
@@ -165,6 +166,7 @@ tr:last-child td { border-bottom: none; }
   <!-- Tab 1: 계좌현황 -->
   <section id="tab-overview" class="active">
     <div id="account-selector" class="account-selector"></div>
+    <div class="chart-box"><h3>보유 종목 비중</h3><div class="chart-wrap-pie"><canvas id="chart-holdings-pie"></canvas></div></div>
     <div class="cards" id="overview-cards">
       <div class="card"><div class="card-label">평가금액</div><div class="card-value" id="v-total">-</div><div class="card-sub" id="v-total-sub"></div></div>
       <div class="card"><div class="card-label">평가손익</div><div class="card-value" id="v-profit">-</div><div class="card-sub" id="v-profit-sub"></div></div>
@@ -409,6 +411,37 @@ function renderCards(p) {
   document.getElementById('v-fx').textContent = fmt(currentFX);
 }
 
+function renderHoldingsPie(holdings) {
+  const ctx = document.getElementById('chart-holdings-pie').getContext('2d');
+  const COLORS = [
+    '#58a6ff','#3fb950','#d29922','#bc8cff','#f85149',
+    '#79c0ff','#56d364','#e3b341','#d2a8ff','#ffa198',
+    '#388bfd','#26a641','#9e6a03','#8957e5','#da3633',
+  ];
+  if (charts['holdings-pie']) charts['holdings-pie'].destroy();
+  if (!holdings.length) return;
+  charts['holdings-pie'] = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: holdings.map(h => h.ticker),
+      datasets: [{
+        data: holdings.map(h => parseFloat(h.weight.toFixed(2))),
+        backgroundColor: COLORS.slice(0, holdings.length),
+        borderColor: '#1c2128',
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { color: '#e6edf3', font: { size: 12 }, padding: 12 } },
+        tooltip: { callbacks: { label: c => ` ${c.label}: ${c.parsed.toFixed(1)}%` } }
+      }
+    }
+  });
+}
+
 function renderHoldings(holdings) {
   const tbody = document.querySelector('#tbl-holdings tbody');
   const fmtPrice = (h) => h.currency === 'USD' ? fmtUSD(h.avgCost) : '₩' + fmt(h.avgCost);
@@ -424,6 +457,7 @@ function renderHoldings(holdings) {
       <td><div>${h.weight.toFixed(1)}%</div><div class="weight-bar"><div class="weight-fill" style="width:${h.weight}%"></div></div></td>
     </tr>
   `).join('');
+  renderHoldingsPie(holdings);
 }
 
 function renderTransactions(txns) {
