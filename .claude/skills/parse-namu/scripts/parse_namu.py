@@ -75,7 +75,7 @@ DOMESTIC_CODE_PATTERN = re.compile(r"^\d{6}$")
 DOMESTIC_STOCK_FIELD = re.compile(r"^(.+?)(\d{6})$")
 
 # 종합파일 국내 주식 거래 상세내용 패턴
-DOMESTIC_TRADE_PATTERN = re.compile(r"코스피|코스닥")
+DOMESTIC_TRADE_PATTERN = re.compile(r"코스피|코스닥|KOSPI|KOSDAQ", re.IGNORECASE)
 
 # ── 출력 컬럼 ────────────────────────────────────────────────────────
 OUTPUT_COLUMNS = [
