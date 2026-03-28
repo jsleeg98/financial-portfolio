@@ -850,6 +850,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!benchmarkLoaded) await loadBenchmarkCSVs();
     const portfolio = computePortfolio(txns, currentPrices, currentFX, benchmarkFX);
     renderAll(portfolio);
+    // 데이터 로드 시 자동으로 시세 조회 (최초 1회)
+    await updatePrices();
   }
 
   // URL 로드
