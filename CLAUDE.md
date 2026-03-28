@@ -41,11 +41,8 @@ git checkout -b feat/{기능명}
 git add ... && git commit -m "feat: ..."
 git push -u origin feat/{기능명}
 
-# 기능 완료 후 PR 생성
+# 기능 완료 후 PR 생성 (merge는 사용자가 직접 확인 후 수행)
 gh pr create --title "{기능명}" --body "## Summary\n- ...\n\n## Test plan\n- [ ] ..."
-
-# PR merge (사용자가 직접 또는 승인 후)
-gh pr merge {번호} --merge
 ```
 
 ### 커밋 및 푸시 절차
