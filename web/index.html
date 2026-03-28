@@ -95,7 +95,7 @@ section.active { display: block; }
 .chart-box h3 { font-size: 14px; color: var(--text-secondary); margin-bottom: 12px; }
 .chart-wrap { position: relative; width: 100%; height: 280px; }
 @media (min-width: 768px) { .chart-wrap { height: 340px; } }
-.chart-wrap-pie { position: relative; width: 100%; height: 300px; max-width: 480px; margin: 0 auto; }
+.chart-wrap-pie { position: relative; width: 100%; height: 320px; }
 
 /* Tables */
 .table-box {
@@ -436,10 +436,28 @@ function renderHoldingsPie(holdings) {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'right', labels: { color: '#e6edf3', font: { size: 12 }, padding: 12 } },
+        legend: {
+          position: 'right',
+          labels: {
+            color: '#ffffff',
+            font: { size: 13, weight: '500' },
+            padding: 16,
+            boxWidth: 14,
+            boxHeight: 14,
+            generateLabels: (chart) => chart.data.labels.map((label, i) => ({
+              text: `${label}  ${chart.data.datasets[0].data[i].toFixed(1)}%`,
+              fillStyle: COLORS[i],
+              strokeStyle: 'transparent',
+              lineWidth: 0,
+              fontColor: '#ffffff',
+              hidden: false,
+              index: i,
+            }))
+          }
+        },
         tooltip: { callbacks: { label: c => ` ${c.label}: ${c.parsed.toFixed(1)}%` } },
         datalabels: {
-          display: true,
+          display: (ctx) => ctx.dataset.data[ctx.dataIndex] >= 5,
           color: '#ffffff',
           font: { size: 11, weight: 'bold' },
           anchor: 'center',
@@ -496,8 +514,11 @@ function renderTransactions(txns) {
 Chart.defaults.color = '#8b949e';
 Chart.defaults.borderColor = '#30363d';
 // datalabels 플러그인 등록 및 기본 비활성화 (파이 차트에서만 활성화)
-Chart.register(ChartDataLabels);
-Chart.defaults.plugins.datalabels = { display: false };
+// CDN 로드 실패 시 undefined여도 전체 스크립트가 멈추지 않도록 가드
+if (typeof ChartDataLabels !== 'undefined') {
+  Chart.register(ChartDataLabels);
+  Chart.defaults.plugins.datalabels = { display: false };
+}
 
 function destroyChart(key) {
   if (charts[key]) { charts[key].destroy(); delete charts[key]; }
@@ -942,19 +963,22 @@ document.addEventListener('DOMContentLoaded', () => {
   async function updatePrices() {
     document.getElementById('btn-price').textContent = '업데이트 중...';
     isPriceFetching = true;
-    if (rawTransactions.length > 0) {
-      const p = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
-      const filteredHoldings = selectedAccount === '전체'
-        ? p.currentHoldings
-        : computePortfolio(rawTransactions.filter(tx => `${tx.증권사}-${tx.계좌번호}` === selectedAccount), currentPrices, currentFX, benchmarkFX).currentHoldings;
-      renderHoldings(filteredHoldings);
-    }
-    const ok = await fetchPricesFromAPI();
-    isPriceFetching = false;
-    document.getElementById('btn-price').textContent = '시세';
-    if (ok && rawTransactions.length > 0) {
-      const portfolio = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
-      renderAll(portfolio);
+    try {
+      if (rawTransactions.length > 0) {
+        const p = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
+        const filteredHoldings = selectedAccount === '전체'
+          ? p.currentHoldings
+          : computePortfolio(rawTransactions.filter(tx => `${tx.증권사}-${tx.계좌번호}` === selectedAccount), currentPrices, currentFX, benchmarkFX).currentHoldings;
+        renderHoldings(filteredHoldings);
+      }
+      const ok = await fetchPricesFromAPI();
+      if (ok && rawTransactions.length > 0) {
+        const portfolio = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
+        renderAll(portfolio);
+      }
+    } finally {
+      isPriceFetching = false;
+      document.getElementById('btn-price').textContent = '시세';
     }
   }
 });
