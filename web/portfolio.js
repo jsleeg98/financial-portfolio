@@ -298,7 +298,8 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
       holdings: JSON.parse(JSON.stringify(twrHoldings)),
       cashUSD: twrCashUSD, cashKRW: twrCashKRW,
       portfolioValue: valueAfter,
-      twr: snapTwr
+      twr: snapTwr,
+      externalFlow
     };
   });
 
@@ -349,7 +350,58 @@ function computeBenchmarkReturns(dailyMap, dates, baseDate) {
   });
 }
 
+// ── 현금흐름 반영 벤치마크 TWR ──────────────────────────────────
+// 포트폴리오의 매수 발생일(externalFlow > 0)을 구간 경계로 삼아
+// 벤치마크도 동일한 타이밍에 투자했다고 가정한 TWR을 계산한다.
+// getPortfolioSubReturn과 완전히 대칭되는 공정한 비교 기준.
+function computeCashFlowBenchmarkTWR(dailySnapshots, dailyMap, queryDates) {
+  const sortedBmDates = Object.keys(dailyMap).sort();
+  if (!sortedBmDates.length) return queryDates.map(d => ({ date: d, returnPct: 0 }));
+
+  function getPrice(date) {
+    let price = null;
+    for (const d of sortedBmDates) {
+      if (d <= date) price = dailyMap[d];
+      else break;
+    }
+    return price;
+  }
+
+  const snapDates = Object.keys(dailySnapshots).sort();
+  const flowDates = snapDates.filter(d => (dailySnapshots[d].externalFlow || 0) > 0);
+  if (flowDates.length === 0) return queryDates.map(d => ({ date: d, returnPct: 0 }));
+
+  function getBenchmarkTWRAt(targetDate) {
+    if (targetDate < flowDates[0]) return 0;
+
+    let periodIdx = 0;
+    for (let i = 1; i < flowDates.length; i++) {
+      if (flowDates[i] <= targetDate) periodIdx = i;
+      else break;
+    }
+
+    let twr = 1;
+
+    // 완료된 구간들 복리 계산
+    for (let i = 0; i < periodIdx; i++) {
+      const startPrice = getPrice(flowDates[i]);
+      const lastBeforeNext = [...snapDates].reverse().find(d => d < flowDates[i + 1]) || flowDates[i];
+      const endPrice = getPrice(lastBeforeNext);
+      if (startPrice && endPrice && startPrice > 0) twr *= endPrice / startPrice;
+    }
+
+    // 현재 구간 (진행 중): flowDates[periodIdx] → targetDate
+    const currStart = getPrice(flowDates[periodIdx]);
+    const currEnd = getPrice(targetDate);
+    if (currStart && currEnd && currStart > 0) twr *= currEnd / currStart;
+
+    return (twr - 1) * 100;
+  }
+
+  return queryDates.map(date => ({ date, returnPct: getBenchmarkTWRAt(date) }));
+}
+
 // Node.js 환경에서 모듈로 사용
 if (typeof module !== 'undefined') {
-  module.exports = { computePortfolio, isForeignTicker, computeBenchmarkReturns };
+  module.exports = { computePortfolio, isForeignTicker, computeBenchmarkReturns, computeCashFlowBenchmarkTWR };
 }
