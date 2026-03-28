@@ -6,6 +6,7 @@
 <title>포트폴리오 대시보드</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2/dist/chartjs-plugin-datalabels.min.js"></script>
 <style>
 :root {
   --bg-primary: #0d1117;
@@ -94,6 +95,7 @@ section.active { display: block; }
 .chart-box h3 { font-size: 14px; color: var(--text-secondary); margin-bottom: 12px; }
 .chart-wrap { position: relative; width: 100%; height: 280px; }
 @media (min-width: 768px) { .chart-wrap { height: 340px; } }
+.chart-wrap-pie { position: relative; width: 100%; height: 300px; max-width: 480px; margin: 0 auto; }
 
 /* Tables */
 .table-box {
@@ -165,6 +167,7 @@ tr:last-child td { border-bottom: none; }
   <!-- Tab 1: 계좌현황 -->
   <section id="tab-overview" class="active">
     <div id="account-selector" class="account-selector"></div>
+    <div class="chart-box"><h3>보유 종목 비중</h3><div class="chart-wrap-pie"><canvas id="chart-holdings-pie"></canvas></div></div>
     <div class="cards" id="overview-cards">
       <div class="card"><div class="card-label">평가금액</div><div class="card-value" id="v-total">-</div><div class="card-sub" id="v-total-sub"></div></div>
       <div class="card"><div class="card-label">평가손익</div><div class="card-value" id="v-profit">-</div><div class="card-sub" id="v-profit-sub"></div></div>
@@ -409,6 +412,47 @@ function renderCards(p) {
   document.getElementById('v-fx').textContent = fmt(currentFX);
 }
 
+function renderHoldingsPie(holdings) {
+  const ctx = document.getElementById('chart-holdings-pie').getContext('2d');
+  const COLORS = [
+    '#58a6ff','#3fb950','#d29922','#bc8cff','#f85149',
+    '#79c0ff','#56d364','#e3b341','#d2a8ff','#ffa198',
+    '#388bfd','#26a641','#9e6a03','#8957e5','#da3633',
+  ];
+  if (charts['holdings-pie']) charts['holdings-pie'].destroy();
+  if (!holdings.length) return;
+  charts['holdings-pie'] = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: holdings.map(h => h.ticker),
+      datasets: [{
+        data: holdings.map(h => parseFloat(h.weight.toFixed(2))),
+        backgroundColor: COLORS.slice(0, holdings.length),
+        borderColor: '#1c2128',
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { color: '#e6edf3', font: { size: 12 }, padding: 12 } },
+        tooltip: { callbacks: { label: c => ` ${c.label}: ${c.parsed.toFixed(1)}%` } },
+        datalabels: {
+          display: true,
+          color: '#ffffff',
+          font: { size: 11, weight: 'bold' },
+          anchor: 'center',
+          align: 'center',
+          formatter: (value) => `${value.toFixed(1)}%`,
+          textShadowBlur: 4,
+          textShadowColor: 'rgba(0,0,0,0.8)',
+        }
+      }
+    }
+  });
+}
+
 function renderHoldings(holdings) {
   const tbody = document.querySelector('#tbl-holdings tbody');
   const fmtPrice = (h) => h.currency === 'USD' ? fmtUSD(h.avgCost) : '₩' + fmt(h.avgCost);
@@ -424,6 +468,7 @@ function renderHoldings(holdings) {
       <td><div>${h.weight.toFixed(1)}%</div><div class="weight-bar"><div class="weight-fill" style="width:${h.weight}%"></div></div></td>
     </tr>
   `).join('');
+  renderHoldingsPie(holdings);
 }
 
 function renderTransactions(txns) {
@@ -450,6 +495,9 @@ function renderTransactions(txns) {
 // ── 차트 ────────────────────────────────────────────────────────
 Chart.defaults.color = '#8b949e';
 Chart.defaults.borderColor = '#30363d';
+// datalabels 플러그인 등록 및 기본 비활성화 (파이 차트에서만 활성화)
+Chart.register(ChartDataLabels);
+Chart.defaults.plugins.datalabels = { display: false };
 
 function destroyChart(key) {
   if (charts[key]) { charts[key].destroy(); delete charts[key]; }
@@ -555,6 +603,7 @@ function renderPerformance(p) {
     }
     return snap;
   }
+
 
   // 현금흐름 반영 벤치마크 TWR (포트폴리오와 동일한 투자 타이밍 가정)
   const sp500Returns = computeCashFlowBenchmarkTWR(p.dailySnapshots, benchmarkSP500, monthEnds.map(m => m.date));
@@ -754,25 +803,35 @@ function renderPerformanceMonthly(p) {
 
 // ── 시세 업데이트 (Yahoo Finance, 무료) ─────────────────────────
 async function fetchWithProxy(url) {
-  // allorigins /get 엔드포인트 (JSON wrapper)
-  try {
-    const resp = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
-    if (resp.ok) {
-      const wrapper = await resp.json();
-      if (wrapper.contents) return JSON.parse(wrapper.contents);
-    }
-  } catch {}
-  // corsproxy.io
-  try {
-    const resp = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
-    if (resp.ok) return resp.json();
-  } catch {}
-  // codetabs proxy
-  try {
-    const resp = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`);
-    if (resp.ok) return resp.json();
-  } catch {}
-  throw new Error('프록시 실패: ' + url);
+  const enc = encodeURIComponent(url);
+
+  // 8초 타임아웃이 있는 fetch
+  function fetchTimeout(proxyUrl) {
+    const ctrl = new AbortController();
+    const id = setTimeout(() => ctrl.abort(), 8000);
+    return fetch(proxyUrl, { signal: ctrl.signal }).finally(() => clearTimeout(id));
+  }
+
+  // 3개 프록시를 병렬로 시도 — 가장 먼저 성공한 결과 사용
+  return Promise.any([
+    async () => {
+      const resp = await fetchTimeout(`https://api.allorigins.win/get?url=${enc}`);
+      if (!resp.ok) throw new Error('not ok');
+      const w = await resp.json();
+      if (!w.contents) throw new Error('no contents');
+      return JSON.parse(w.contents);
+    },
+    async () => {
+      const resp = await fetchTimeout(`https://corsproxy.io/?${enc}`);
+      if (!resp.ok) throw new Error('not ok');
+      return resp.json();
+    },
+    async () => {
+      const resp = await fetchTimeout(`https://api.codetabs.com/v1/proxy?quest=${enc}`);
+      if (!resp.ok) throw new Error('not ok');
+      return resp.json();
+    },
+  ].map(fn => fn()));
 }
 
 async function fetchPricesFromAPI() {
