@@ -4,13 +4,15 @@ NH나무증권 거래내역 기반 개인 포트폴리오 추적 대시보드.
 
 거래내역 XLS 파일을 파싱해 CSV로 변환하고, 브라우저에서 바로 열리는 단일 HTML 파일로 포트폴리오 현황을 시각화한다.
 
+**라이브 대시보드**: https://jsleeg98.github.io/financial-portfolio/
+
 ## 주요 기능
 
-- **포트폴리오 현황**: 보유 종목별 수량·평균단가·평가손익 테이블
+- **포트폴리오 현황**: 보유 종목별 수량·평균단가·평가손익 테이블 + 종목 비중 도넛 차트
 - **계좌 추세**: 월별 포트폴리오 평가금액 추이 (계좌별 필터)
-- **수익률 비교**: TWR 기반 누적 수익률 vs 코스피·S&P500·NASDAQ100
-- **거래내역**: 전체 거래 내역 테이블 (종목·유형 필터)
-- **실시간 시세**: Yahoo Finance API 연동 (CORS 프록시 경유)
+- **수익률 비교**: 현금흐름 반영 TWR 기반 누적 수익률 vs 코스피·S&P500·NASDAQ100
+- **거래내역**: 전체 거래 내역 테이블
+- **실시간 시세**: 데이터 로드 시 자동 조회 + 수동 버튼 (Yahoo Finance, CORS 프록시 3개 병렬)
 
 ## 프로젝트 구조
 
@@ -18,7 +20,14 @@ NH나무증권 거래내역 기반 개인 포트폴리오 추적 대시보드.
 financial-portfolio/
 ├── web/
 │   ├── index.html          # 포트폴리오 대시보드 (단일 파일)
-│   └── portfolio.js        # 계산 엔진 (computePortfolio)
+│   ├── portfolio.js        # 계산 엔진 (computePortfolio, computeCashFlowBenchmarkTWR)
+│   └── data/               # 벤치마크 CSV (GitHub Pages 배포 포함)
+│       ├── sp500_daily.csv
+│       ├── nasdaq100_daily.csv
+│       ├── kospi_daily.csv
+│       └── usdkrw_daily.csv
+├── .github/workflows/
+│   └── deploy-pages.yml    # main 브랜치 push 시 web/ → GitHub Pages 자동 배포
 ├── scripts/
 │   └── fetch_benchmark.py  # S&P500/NASDAQ100/KOSPI/USD-KRW 일별 종가 다운로드
 ├── tests/
@@ -26,11 +35,7 @@ financial-portfolio/
 │   └── fixtures/
 │       └── 종합거래내역.csv  # 고정 기준 데이터셋 (갱신 금지)
 ├── output/                 # 생성된 CSV (gitignore)
-│   ├── 종합거래내역.csv
-│   ├── sp500_daily.csv
-│   ├── nasdaq100_daily.csv
-│   ├── kospi_daily.csv
-│   └── usdkrw_daily.csv
+│   └── 종합거래내역.csv
 ├── resource/               # 원본 XLS 파일 (gitignore)
 │   └── NH나무증권/
 │       └── {계좌번호}/
@@ -60,7 +65,7 @@ source .venv/bin/activate
 python .claude/skills/parse-namu/scripts/parse_namu.py resource/
 ```
 
-- 정규화되지 않은 파일명(`종합거래내역(상세)_이름_YYYY.MM.DD_...xls`)은 자동으로 정규화 후 연도별 폴더로 이동
+- 정규화되지 않은 파일명은 자동으로 정규화 후 연도별 폴더로 이동
 - 출력: `output/종합거래내역.csv`
 
 ### 3. 벤치마크 데이터 다운로드
@@ -69,7 +74,7 @@ python .claude/skills/parse-namu/scripts/parse_namu.py resource/
 python scripts/fetch_benchmark.py
 ```
 
-- 출력: `output/sp500_daily.csv`, `output/nasdaq100_daily.csv`, `output/kospi_daily.csv`, `output/usdkrw_daily.csv`
+- 출력: `web/data/sp500_daily.csv`, `web/data/nasdaq100_daily.csv`, `web/data/kospi_daily.csv`, `web/data/usdkrw_daily.csv`
 - 기존 CSV가 있으면 마지막 날짜 이후분만 추가
 
 ### 4. 대시보드 열기
@@ -87,8 +92,8 @@ start web\index.html
 
 또는 파일 탐색기에서 `web/index.html`을 더블클릭해 브라우저로 열어도 된다.
 
-- CSV 파일 업로드 또는 Google Sheets URL 입력으로 데이터 로드
-- **시세** 버튼으로 현재가 업데이트 (Yahoo Finance)
+- CSV 파일 업로드로 데이터 로드 → 시세 자동 조회
+- **시세** 버튼으로 현재가 수동 업데이트
 
 ## 거래내역 갱신 워크플로우
 
