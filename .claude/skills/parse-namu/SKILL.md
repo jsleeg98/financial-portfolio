@@ -33,8 +33,9 @@ python .claude/skills/parse-namu/scripts/parse_namu.py resource/NH나무증권/2
 # 단일 파일 파싱
 python .claude/skills/parse-namu/scripts/parse_namu.py resource/NH나무증권/202-01-292788/2024/NH나무증권_202-01-292788_240101-240331_종합.xls
 
-# 새 계좌 파일 정리 (파일명 정규화 + 연도별 폴더 이동)
-python .claude/skills/parse-namu/scripts/parse_namu.py --organize resource/NH나무증권/202-02-292788/
+# 새 계좌 추가 시 파일 정리 (파일명 정규화 + 연도별 폴더 이동) — 파싱 전 수동 1회 실행
+# 파일명이 정규화되지 않은 경우에만 필요. /parse-namu 스킬과는 별개.
+python .claude/skills/parse-namu/scripts/parse_namu.py --organize resource/NH나무증권/{계좌번호}/
 ```
 
 **주의:** `pip install`을 시스템 Python에 직접 실행하면 `externally-managed-environment` 오류가 발생한다. 반드시 `.venv`를 활성화한 후 실행하라.
