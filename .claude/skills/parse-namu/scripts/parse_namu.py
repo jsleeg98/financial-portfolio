@@ -557,6 +557,27 @@ def organize_account_folder(account_dir: Path, broker: str = "NH나무증권") -
     return moved
 
 
+def auto_organize_if_needed(input_path: str) -> None:
+    """입력 경로 내에서 정규화되지 않은 .xls 파일을 감지하면 자동으로 정리한다.
+
+    ORGANIZE_FILENAME_PATTERN에 매칭되는 파일이 있는 폴더를 찾아
+    organize_account_folder()를 자동 호출한다.
+    """
+    p = Path(input_path)
+    if p.is_file():
+        return  # 단일 파일은 정리 불필요
+
+    dirs_to_organize: set[Path] = set()
+    for xls in p.rglob("*.xls"):
+        if ORGANIZE_FILENAME_PATTERN.match(xls.name):
+            dirs_to_organize.add(xls.parent)
+
+    for dir_path in sorted(dirs_to_organize):
+        print(f"\n[자동 정리] 정규화되지 않은 파일 감지: {dir_path}")
+        moved = organize_account_folder(dir_path)
+        print(f"  → {moved}개 파일 정리 완료")
+
+
 def scan_files(path: str) -> list[str]:
     """경로에서 .xls 파일 목록을 반환한다."""
     p = Path(path)
@@ -614,6 +635,7 @@ def main():
         sys.exit(0)
 
     input_path = args[0]
+    auto_organize_if_needed(input_path)
     files = scan_files(input_path)
     if not files:
         print("처리할 .xls 파일이 없습니다.")
