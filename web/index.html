@@ -6,6 +6,7 @@
 <title>포트폴리오 대시보드</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2/dist/chartjs-plugin-datalabels.min.js"></script>
 <style>
 :root {
   --bg-primary: #0d1117;
@@ -436,7 +437,17 @@ function renderHoldingsPie(holdings) {
       maintainAspectRatio: false,
       plugins: {
         legend: { position: 'right', labels: { color: '#e6edf3', font: { size: 12 }, padding: 12 } },
-        tooltip: { callbacks: { label: c => ` ${c.label}: ${c.parsed.toFixed(1)}%` } }
+        tooltip: { callbacks: { label: c => ` ${c.label}: ${c.parsed.toFixed(1)}%` } },
+        datalabels: {
+          display: true,
+          color: '#ffffff',
+          font: { size: 11, weight: 'bold' },
+          anchor: 'center',
+          align: 'center',
+          formatter: (value) => `${value.toFixed(1)}%`,
+          textShadowBlur: 4,
+          textShadowColor: 'rgba(0,0,0,0.8)',
+        }
       }
     }
   });
@@ -484,6 +495,8 @@ function renderTransactions(txns) {
 // ── 차트 ────────────────────────────────────────────────────────
 Chart.defaults.color = '#8b949e';
 Chart.defaults.borderColor = '#30363d';
+// datalabels 플러그인은 파이 차트에만 사용, 나머지 차트에서는 비활성화
+Chart.defaults.plugins.datalabels = { display: false };
 
 function destroyChart(key) {
   if (charts[key]) { charts[key].destroy(); delete charts[key]; }
