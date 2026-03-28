@@ -27,11 +27,11 @@ source .venv/bin/activate
 # resource 전체 스캔 (해외주식 + 종합 파일 자동 감지)
 python .claude/skills/parse-namu/scripts/parse_namu.py resource/
 
-# 특정 폴더 내 전체 파싱
-python .claude/skills/parse-namu/scripts/parse_namu.py resource/NH나무증권/2025/
+# 특정 계좌/연도 폴더 내 전체 파싱
+python .claude/skills/parse-namu/scripts/parse_namu.py resource/NH나무증권/202-01-292-788/2025/
 
 # 단일 파일 파싱
-python .claude/skills/parse-namu/scripts/parse_namu.py resource/NH나무증권/2024/NH나무증권_202-01-292788_240101-240331_종합.xls
+python .claude/skills/parse-namu/scripts/parse_namu.py resource/NH나무증권/202-01-292-788/2024/NH나무증권_202-01-292788_240101-240331_종합.xls
 
 # 입력 파일 살균 (받는통장표시내용 제거)
 python .claude/skills/parse-namu/scripts/parse_namu.py --sanitize resource/
