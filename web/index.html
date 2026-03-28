@@ -969,16 +969,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const filteredHoldings = selectedAccount === '전체'
           ? p.currentHoldings
           : computePortfolio(rawTransactions.filter(tx => `${tx.증권사}-${tx.계좌번호}` === selectedAccount), currentPrices, currentFX, benchmarkFX).currentHoldings;
-        renderHoldings(filteredHoldings);
+        renderHoldings(filteredHoldings);  // 로딩 표시용
       }
-      const ok = await fetchPricesFromAPI();
-      if (ok && rawTransactions.length > 0) {
-        const portfolio = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
-        renderAll(portfolio);
-      }
+      await fetchPricesFromAPI();
     } finally {
-      isPriceFetching = false;
+      isPriceFetching = false;  // renderAll 전에 반드시 false로
       document.getElementById('btn-price').textContent = '시세';
+      if (rawTransactions.length > 0) {
+        const portfolio = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
+        renderAll(portfolio);  // 성공/실패 무관하게 항상 재렌더 (로딩 표시 제거)
+      }
     }
   }
 });
