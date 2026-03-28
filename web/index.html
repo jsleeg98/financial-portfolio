@@ -334,10 +334,12 @@ function computePortfolio(txns, prices, fx) {
     const splitIn = dayTxns.filter(tx => tx.유형 === '입고');
     // 3. 기존 보유 종목 매도 (평균단가 보존)
     const sells = dayTxns.filter(tx => (tx.유형 === '매도' || tx.유형 === '감자출고') && tx.종목코드 && holdings[tx.종목코드]?.qty > 0.0001);
-    // 4. 나머지 (매수, 배당, 미보유 종목 매도 등)
+    // 4. 나머지: 매수 먼저, 미보유 종목 매도 나중 (당일 매수→매도 케이스)
     const processed = new Set([...splitOut, ...splitIn, ...sells]);
     const rest = dayTxns.filter(tx => !processed.has(tx));
-    return [...splitOut, ...splitIn, ...sells, ...rest];
+    const restBuys = rest.filter(tx => tx.유형 === '매수');
+    const restOther = rest.filter(tx => tx.유형 !== '매수');
+    return [...splitOut, ...splitIn, ...sells, ...restBuys, ...restOther];
   }
 
   const sortedDatesMain = Object.keys(dateGroupsForSort).sort();
