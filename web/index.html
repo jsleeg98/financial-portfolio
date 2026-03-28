@@ -514,8 +514,11 @@ function renderTransactions(txns) {
 Chart.defaults.color = '#8b949e';
 Chart.defaults.borderColor = '#30363d';
 // datalabels 플러그인 등록 및 기본 비활성화 (파이 차트에서만 활성화)
-Chart.register(ChartDataLabels);
-Chart.defaults.plugins.datalabels = { display: false };
+// CDN 로드 실패 시 undefined여도 전체 스크립트가 멈추지 않도록 가드
+if (typeof ChartDataLabels !== 'undefined') {
+  Chart.register(ChartDataLabels);
+  Chart.defaults.plugins.datalabels = { display: false };
+}
 
 function destroyChart(key) {
   if (charts[key]) { charts[key].destroy(); delete charts[key]; }
@@ -960,19 +963,22 @@ document.addEventListener('DOMContentLoaded', () => {
   async function updatePrices() {
     document.getElementById('btn-price').textContent = '업데이트 중...';
     isPriceFetching = true;
-    if (rawTransactions.length > 0) {
-      const p = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
-      const filteredHoldings = selectedAccount === '전체'
-        ? p.currentHoldings
-        : computePortfolio(rawTransactions.filter(tx => `${tx.증권사}-${tx.계좌번호}` === selectedAccount), currentPrices, currentFX, benchmarkFX).currentHoldings;
-      renderHoldings(filteredHoldings);
-    }
-    const ok = await fetchPricesFromAPI();
-    isPriceFetching = false;
-    document.getElementById('btn-price').textContent = '시세';
-    if (ok && rawTransactions.length > 0) {
-      const portfolio = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
-      renderAll(portfolio);
+    try {
+      if (rawTransactions.length > 0) {
+        const p = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
+        const filteredHoldings = selectedAccount === '전체'
+          ? p.currentHoldings
+          : computePortfolio(rawTransactions.filter(tx => `${tx.증권사}-${tx.계좌번호}` === selectedAccount), currentPrices, currentFX, benchmarkFX).currentHoldings;
+        renderHoldings(filteredHoldings);
+      }
+      const ok = await fetchPricesFromAPI();
+      if (ok && rawTransactions.length > 0) {
+        const portfolio = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
+        renderAll(portfolio);
+      }
+    } finally {
+      isPriceFetching = false;
+      document.getElementById('btn-price').textContent = '시세';
     }
   }
 });
