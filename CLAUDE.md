@@ -26,6 +26,27 @@
 feat: 계좌별 pill 선택 UI 및 per-account 추세 차트 추가
 ```
 
+### 브랜치 전략
+
+- **main**: 완성된 기능만 존재하는 안정 브랜치. 직접 커밋하지 마라.
+- **feat/{기능명}**: 새 기능 작업 브랜치. 기능 완료 후 main에 merge한다.
+
+브랜치 워크플로우:
+```bash
+# 새 기능 시작
+git checkout main && git pull
+git checkout -b feat/{기능명}
+
+# 작업 중 커밋 (논리적 단위별)
+git add ... && git commit -m "feat: ..."
+git push -u origin feat/{기능명}
+
+# 기능 완료 후 main에 merge
+git checkout main
+git merge feat/{기능명} --no-ff -m "feat: {기능명} 통합"
+git push
+```
+
 ### 커밋 및 푸시 절차
 1. 작업 완료 후 `git add`로 변경 파일을 스테이징하라.
 2. 위 형식에 맞는 커밋 메시지를 작성하여 `git commit`하라.
@@ -34,7 +55,7 @@ feat: 계좌별 pill 선택 UI 및 per-account 추세 차트 추가
 
 ### 주의사항
 - `git push --force` 또는 `git push -f`는 사용하지 마라.
-- `main` 또는 `master` 브랜치에 직접 커밋하지 마라. 작업 브랜치에서 작업하라.
+- `main` 브랜치에 직접 커밋하지 마라. 반드시 feature 브랜치에서 작업 후 merge하라.
 - 커밋 전 `git diff --staged`로 변경 내용을 확인하라.
 - `.env`, 시크릿 키, 인증 정보가 포함된 파일은 절대 커밋하지 마라.
 
