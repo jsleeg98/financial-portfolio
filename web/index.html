@@ -456,16 +456,11 @@ function renderPerformance(p) {
   const nasdaqReturns = computeBenchmarkReturns(benchmarkNasdaq, monthEnds.map(m => m.date), baseDate);
   const kospiReturns = computeBenchmarkReturns(benchmarkKospi, monthEnds.map(m => m.date), baseDate);
 
-  // 내 포트폴리오 월별 수익률 (TWR 방식: 포트폴리오 가치 = 주식 시가 + 현금)
-  // 첫 거래일의 포트폴리오 가치를 기준(0%)으로 사용
-  const firstSnap = p.dailySnapshots[p.firstTxDate];
-  const baseValue = firstSnap ? firstSnap.portfolioValue : 0;
-
+  // 내 포트폴리오 월별 TWR (거래 단가 기반 시간가중수익률)
   const myReturns = monthEnds.map(me => {
     const snap = getSnapshotAt(me.date);
-    if (!snap || !snap.portfolioValue) return 0;
-    // 0%에서 시작하도록: 첫 거래일 대비 수익률
-    return baseValue > 0 ? ((snap.portfolioValue / baseValue) - 1) * 100 : 0;
+    if (!snap) return 0;
+    return snap.twr ?? 0;
   });
 
   const labels = monthEnds.map(m => m.month);
