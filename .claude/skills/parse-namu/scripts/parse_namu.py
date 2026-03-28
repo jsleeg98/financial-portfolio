@@ -86,7 +86,7 @@ OUTPUT_COLUMNS = [
     "금액", "환율", "금액KRW", "통화", "증권사", "계좌번호", "비고",
 ]
 
-DEDUP_KEYS = ["거래일자", "유형", "종목코드", "수량", "단가", "금액", "통화"]
+DEDUP_KEYS = ["거래일자", "유형", "종목코드", "수량", "단가", "금액", "통화", "증권사", "계좌번호"]
 
 # ── 깨진 인코딩 fallback 매핑 ────────────────────────────────────────
 BROKEN_ENCODING_MAP = {
@@ -685,6 +685,13 @@ def main():
         df[col] = df[col].fillna("")
 
     df = sort_records(df)
+
+    # 중복 제거 (같은 계좌의 동일 거래가 여러 번 파싱된 경우)
+    before = len(df)
+    df = df.drop_duplicates(subset=DEDUP_KEYS, keep="last")
+    removed = before - len(df)
+    if removed > 0:
+        print(f"\n중복 제거: {removed}건 제거 ({before} → {len(df)}건)")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_path, index=False, encoding="utf-8-sig")
