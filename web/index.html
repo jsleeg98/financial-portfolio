@@ -75,8 +75,7 @@ section.active { display: block; }
 /* Cards */
 .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
 @media (min-width: 768px) { .cards { grid-template-columns: repeat(4, 1fr); } }
-.cards-3 { grid-template-columns: 1fr 1fr 1fr; }
-.cards-4 { grid-template-columns: repeat(4, 1fr); }
+@media (min-width: 768px) { .cards-3 { grid-template-columns: 1fr 1fr 1fr; } }
 .card {
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: 10px; padding: 16px;
