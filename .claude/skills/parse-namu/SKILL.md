@@ -35,9 +35,6 @@ python .claude/skills/parse-namu/scripts/parse_namu.py resource/NH나무증권/2
 
 # 새 계좌 파일 정리 (파일명 정규화 + 연도별 폴더 이동)
 python .claude/skills/parse-namu/scripts/parse_namu.py --organize resource/NH나무증권/202-02-292788/
-
-# 입력 파일 살균 (거래내역메모 제거)
-python .claude/skills/parse-namu/scripts/parse_namu.py --sanitize resource/
 ```
 
 **주의:** `pip install`을 시스템 Python에 직접 실행하면 `externally-managed-environment` 오류가 발생한다. 반드시 `.venv`를 활성화한 후 실행하라.
@@ -79,9 +76,9 @@ python .claude/skills/parse-namu/scripts/parse_namu.py --sanitize resource/
 포함: 코스피/코스닥 매수, 매도, 감자출고
 제외: 그 외 모든 거래(환전, 이체, 입출금 등)
 
-## 자동 살균
+## 자동 살균 (항상 수행)
 
-종합거래내역 파일 파싱 시 거래내역메모 열의 내용을 자동으로 제거한다. 헤더는 유지하고 본문만 비운다.
+종합거래내역 파일 파싱 시 **거래내역메모 열의 내용을 항상 자동으로 제거**한다. 헤더는 유지하고 본문만 비운다. 별도 옵션 없이 파싱할 때마다 실행된다.
 
 ## 종목 매핑 (해외주식)
 

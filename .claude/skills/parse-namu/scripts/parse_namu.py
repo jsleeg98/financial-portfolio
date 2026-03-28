@@ -6,13 +6,13 @@
 사용법:
     python parse_namu.py <파일 또는 폴더 경로>
     python parse_namu.py --organize <계좌 폴더 경로>
-    python parse_namu.py --sanitize <파일 또는 폴더 경로>
 
 예시:
     python parse_namu.py resource/
     python parse_namu.py resource/NH나무증권/202-01-292788/2025/
     python parse_namu.py --organize resource/NH나무증권/202-02-292788/  # 미정리 파일 연도별 정리
-    python parse_namu.py --sanitize resource/  # 거래내역메모 제거
+
+참고: 종합거래내역 파일 파싱 시 거래내역메모 내용을 항상 자동으로 제거한다.
 """
 
 import os
@@ -577,12 +577,11 @@ def sort_records(df: pd.DataFrame) -> pd.DataFrame:
 
 def main():
     if len(sys.argv) < 2:
-        print("사용법: python parse_namu.py [--organize|--sanitize] <파일 또는 폴더 경로>")
+        print("사용법: python parse_namu.py [--organize] <파일 또는 폴더 경로>")
         print("예시:")
         print("  python parse_namu.py resource/")
         print("  python parse_namu.py resource/NH나무증권/202-01-292788/2025/")
         print("  python parse_namu.py --organize resource/NH나무증권/202-02-292788/  # 미정리 파일 연도별 정리")
-        print("  python parse_namu.py --sanitize resource/  # 거래내역메모 제거")
         sys.exit(1)
 
     args = sys.argv[1:]
