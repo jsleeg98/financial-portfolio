@@ -75,9 +75,17 @@ python scripts/fetch_benchmark.py
 ### 4. 대시보드 열기
 
 ```bash
-open web/index.html   # macOS
-# 또는 브라우저에서 직접 파일 열기
+# macOS
+open web/index.html
+
+# Linux
+xdg-open web/index.html
+
+# Windows (PowerShell 또는 cmd)
+start web\index.html
 ```
+
+또는 파일 탐색기에서 `web/index.html`을 더블클릭해 브라우저로 열어도 된다.
 
 - CSV 파일 업로드 또는 Google Sheets URL 입력으로 데이터 로드
 - **시세** 버튼으로 현재가 업데이트 (Yahoo Finance)
