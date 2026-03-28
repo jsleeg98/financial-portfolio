@@ -55,7 +55,7 @@ function assertAvgCost(actual, expected, ticker) {
 
 // ── 실제 CSV 로드 ───────────────────────────────────────────────
 
-const CSV_PATH = path.join(__dirname, '../output/종합거래내역.csv');
+const CSV_PATH = path.join(__dirname, 'fixtures/종합거래내역.csv');
 const realTxns = fs.existsSync(CSV_PATH) ? parseCSV(fs.readFileSync(CSV_PATH, 'utf8')) : null;
 
 function requireRealData(t) {
