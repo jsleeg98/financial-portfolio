@@ -99,10 +99,4 @@ node tests/test_portfolio.js
 
 ### 고정 데이터셋 업데이트
 
-거래 데이터가 크게 변경되어 기대값이 달라지면 fixture를 갱신하라.
-
-```bash
-cp output/종합거래내역.csv tests/fixtures/종합거래내역.csv
-```
-
-기대값(avgCost 등)도 함께 업데이트한 뒤 커밋하라.
+fixture는 갱신하지 않는다. `tests/fixtures/종합거래내역.csv`는 고정 기준 데이터셋으로 유지하라.
