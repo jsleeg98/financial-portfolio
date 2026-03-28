@@ -290,3 +290,44 @@ test('라이브 CSV [202-02]: IREN qty = 61, CRCL qty = 9', (t) => {
   const sgov = result.currentHoldings.find(h => h.ticker === 'SGOV');
   assert.equal(sgov, undefined, '[202-02] SGOV 전량 매도 후 잔고 없어야 함');
 });
+
+// [202-07-292788] 계좌 스냅샷
+// 새 거래 추가 시 아래 기대값을 함께 갱신하라.
+test('라이브 CSV [202-07]: IREN qty = 100, RKLB qty = 40', (t) => {
+  if (!requireLiveData(t)) return;
+  const txns07 = liveTxns.filter(tx => tx.계좌번호 === '202-07-292788');
+  if (txns07.length === 0) { t.skip('202-07-292788 계좌 데이터 없음'); return; }
+  const result = computePortfolio(txns07, {}, 1450);
+
+  result.currentHoldings.forEach(h => {
+    assert.ok(h.qty >= 0, `[202-07] ${h.ticker} qty 음수: ${h.qty}`);
+  });
+
+  const iren = result.currentHoldings.find(h => h.ticker === 'IREN');
+  assert.ok(iren, '[202-07] IREN 보유 종목 존재');
+  assert.equal(iren.qty, 100, `[202-07] IREN qty: 예상 100, 실제 ${iren.qty}`);
+
+  const rklb = result.currentHoldings.find(h => h.ticker === 'RKLB');
+  assert.ok(rklb, '[202-07] RKLB 보유 종목 존재');
+  assert.equal(rklb.qty, 40, `[202-07] RKLB qty: 예상 40, 실제 ${rklb.qty}`);
+});
+
+// [209-02-687627] 계좌 스냅샷
+// 새 거래 추가 시 아래 기대값을 함께 갱신하라.
+test('라이브 CSV [209-02]: RISE 미국나스닥100 qty = 280', (t) => {
+  if (!requireLiveData(t)) return;
+  const txns209 = liveTxns.filter(tx => tx.계좌번호 === '209-02-687627');
+  if (txns209.length === 0) { t.skip('209-02-687627 계좌 데이터 없음'); return; }
+  const result = computePortfolio(txns209, {}, 1450);
+
+  result.currentHoldings.forEach(h => {
+    assert.ok(h.qty >= 0, `[209-02] ${h.ticker} qty 음수: ${h.qty}`);
+  });
+
+  const rise = result.currentHoldings.find(h => h.ticker === 'RISE 미국나스닥100');
+  assert.ok(rise, '[209-02] RISE 미국나스닥100 보유 종목 존재');
+  assert.equal(rise.qty, 280, `[209-02] RISE 미국나스닥100 qty: 예상 280, 실제 ${rise.qty}`);
+
+  const sol = result.currentHoldings.find(h => h.ticker === 'SOL 미국배당다우존스');
+  assert.equal(sol, undefined, '[209-02] SOL 미국배당다우존스 전량 매도 후 잔고 없어야 함');
+});
