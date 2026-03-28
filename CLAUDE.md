@@ -75,6 +75,28 @@ gh issue close 번호 --comment "해결 내용 + 커밋 SHA"
 
 ---
 
+## 배포
+
+### GitHub Pages 자동 배포
+
+`main` 브랜치에 push 되면 `.github/workflows/deploy-pages.yml`이 `web/` 폴더를 GitHub Pages에 자동 배포한다.
+
+- **라이브 URL**: https://jsleeg98.github.io/financial-portfolio/
+- 배포 범위: `web/` 디렉토리만 (거래내역·원본 XLS 미포함)
+- 벤치마크 CSV는 `web/data/`에 위치해야 Pages에서 로드 가능
+
+### 벤치마크 CSV 갱신
+
+```bash
+source .venv/bin/activate
+python scripts/fetch_benchmark.py
+```
+
+출력 경로: `web/data/` (sp500_daily.csv, nasdaq100_daily.csv, kospi_daily.csv, usdkrw_daily.csv)
+기존 파일이 있으면 마지막 날짜 이후분만 추가된다.
+
+---
+
 ## 데이터 관리
 
 ### 새 거래 내역 추가 워크플로우
@@ -138,6 +160,16 @@ gh issue close 번호 --comment "해결 내용 + 커밋 SHA"
 - 증상: 특정 종목 보유수량이 음수
 - 원인: 거래 시간순 정렬 오류, 또는 파싱 누락으로 매도가 먼저 처리됨
 - 해결: 해당 종목 거래내역을 날짜순으로 검토하여 원인 파악
+
+**시세 조회 후 "시세 조회 중..." 영구 잔류**
+- 증상: 시세 버튼 클릭 또는 자동 시세 조회 후 현재가 컬럼에 로딩 텍스트가 계속 표시됨
+- 원인: `isPriceFetching = false`가 `renderAll()` 호출 *이후*에 실행되어, `renderAll` 내부 렌더링 시 여전히 `true` 상태
+- 해결: `isPriceFetching = false`를 `renderAll()` 호출 직전(finally 블록 맨 앞)으로 이동. `renderAll`은 fetch 성공/실패 무관하게 항상 실행되어야 함
+
+**ChartDataLabels CDN 로드 실패 시 전체 버튼 먹통**
+- 증상: 시세 버튼을 포함한 모든 버튼이 반응 없음
+- 원인: `Chart.register(ChartDataLabels)`가 스크립트 최상위에 있어 CDN 실패 시 ReferenceError → 이하 이벤트 리스너 등록 코드 미실행
+- 해결: `typeof ChartDataLabels !== 'undefined'` 가드로 보호
 
 ---
 
