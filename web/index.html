@@ -75,8 +75,7 @@ section.active { display: block; }
 /* Cards */
 .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
 @media (min-width: 768px) { .cards { grid-template-columns: repeat(4, 1fr); } }
-.cards-3 { grid-template-columns: 1fr 1fr 1fr; }
-.cards-4 { grid-template-columns: repeat(4, 1fr); }
+@media (min-width: 768px) { .cards-3 { grid-template-columns: 1fr 1fr 1fr; } }
 .card {
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: 10px; padding: 16px;
@@ -93,7 +92,8 @@ section.active { display: block; }
   border-radius: 10px; padding: 16px; margin-bottom: 20px;
 }
 .chart-box h3 { font-size: 14px; color: var(--text-secondary); margin-bottom: 12px; }
-.chart-wrap { position: relative; width: 100%; }
+.chart-wrap { position: relative; width: 100%; height: 280px; }
+@media (min-width: 768px) { .chart-wrap { height: 340px; } }
 
 /* Tables */
 .table-box {
@@ -237,7 +237,13 @@ let currentPrices = { ...SAMPLE_PRICES };
 let currentFX = SAMPLE_FX;
 let charts = {};
 let benchmarkLoaded = false;
+// Chart.js 전역 기본값 — 모바일 시인성 개선
+Chart.defaults.font.size = 12;
+Chart.defaults.plugins.legend.labels.boxWidth = 12;
+Chart.defaults.plugins.legend.labels.padding = 8;
+
 let selectedAccount = '전체';
+let isPriceFetching = false;
 const ACCOUNT_COLORS = ['#3fb950', '#d29922', '#f85149', '#bc8cff'];
 
 // ── CSV 파싱 ────────────────────────────────────────────────────
@@ -310,10 +316,10 @@ function parseBenchmarkCSV(text) {
 
 async function loadBenchmarkCSVs() {
   const paths = [
-    ['../output/sp500_daily.csv', 'sp500'],
-    ['../output/nasdaq100_daily.csv', 'nasdaq'],
-    ['../output/kospi_daily.csv', 'kospi'],
-    ['../output/usdkrw_daily.csv', 'usdkrw'],
+    ['./data/sp500_daily.csv', 'sp500'],
+    ['./data/nasdaq100_daily.csv', 'nasdaq'],
+    ['./data/kospi_daily.csv', 'kospi'],
+    ['./data/usdkrw_daily.csv', 'usdkrw'],
   ];
   for (const [path, target] of paths) {
     try {
@@ -406,7 +412,7 @@ function renderCards(p) {
 function renderHoldings(holdings) {
   const tbody = document.querySelector('#tbl-holdings tbody');
   const fmtPrice = (h) => h.currency === 'USD' ? fmtUSD(h.avgCost) : '₩' + fmt(h.avgCost);
-  const fmtCurPrice = (h) => h.currency === 'USD' ? fmtUSD(h.price) : '₩' + fmt(h.price);
+  const fmtCurPrice = (h) => isPriceFetching ? '<span style="color:var(--text-secondary);font-size:11px">시세 조회 중...</span>' : (h.currency === 'USD' ? fmtUSD(h.price) : '₩' + fmt(h.price));
   tbody.innerHTML = holdings.map(h => `
     <tr>
       <td><strong>${h.ticker}</strong></td>
@@ -464,8 +470,9 @@ function renderPnLChart(p) {
       }]
     },
     options: {
-      responsive: true, plugins: { legend: { display: false } },
-      scales: { y: { ticks: { callback: v => (v/10000).toFixed(0) + '만' } } }
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { ticks: { callback: v => (v/10000).toFixed(0) + '만', maxTicksLimit: 6 } } }
     }
   });
 }
@@ -496,14 +503,16 @@ function renderCharts(p, allTxns) {
     data: {
       labels,
       datasets: [
-        { label: '합산', data: p.monthlyTrend.map(m => Math.round(m.valuation)), borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.1)', fill: true, tension: 0.3, pointRadius: 2 },
+        { label: '합산', data: p.monthlyTrend.map(m => Math.round(m.valuation)), borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.1)', fill: true, tension: 0.3, pointRadius: 3 },
         { label: '원금', data: p.monthlyTrend.map(m => Math.round(m.principal)), borderColor: '#8b949e', borderDash: [5,5], fill: false, tension: 0.3, pointRadius: 0 },
         ...accountDatasets
       ]
     },
     options: {
-      responsive: true, plugins: { legend: { position: 'top' } },
-      scales: { y: { ticks: { callback: v => (v/10000).toFixed(0) + '만' } } }
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top' } },
+      scales: { y: { ticks: { callback: v => (v/10000).toFixed(0) + '만', maxTicksLimit: 6 } },
+                x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 8 } } }
     }
   });
 
@@ -621,9 +630,9 @@ function renderPerformance(p) {
       ]
     },
     options: {
-      responsive: true,
+      responsive: true, maintainAspectRatio: false,
       plugins: { legend: { position: 'top' } },
-      scales: { y: { ticks: { callback: v => v != null ? v.toFixed(1) + '%' : '' } } }
+      scales: { y: { ticks: { callback: v => v != null ? v.toFixed(1) + '%' : '', maxTicksLimit: 6 } } }
     }
   });
 
@@ -634,15 +643,17 @@ function renderPerformance(p) {
     data: {
       labels,
       datasets: [
-        { label: '내 포트폴리오', data: myReturns, borderColor: '#58a6ff', tension: 0.3, pointRadius: 2 },
-        { label: 'S&P 500', data: sp500Returns.map(r => r.returnPct), borderColor: '#d29922', tension: 0.3, pointRadius: 2 },
-        { label: 'NASDAQ 100', data: nasdaqReturns.map(r => r.returnPct), borderColor: '#bc8cff', tension: 0.3, pointRadius: 2 },
-        ...(Object.keys(benchmarkKospi).length > 0 ? [{ label: 'KOSPI', data: kospiReturns.map(r => r.returnPct), borderColor: '#3fb950', tension: 0.3, pointRadius: 2 }] : [])
+        { label: '내 포트폴리오', data: myReturns, borderColor: '#58a6ff', tension: 0.3, pointRadius: 3 },
+        { label: 'S&P 500', data: sp500Returns.map(r => r.returnPct), borderColor: '#d29922', tension: 0.3, pointRadius: 3 },
+        { label: 'NASDAQ 100', data: nasdaqReturns.map(r => r.returnPct), borderColor: '#bc8cff', tension: 0.3, pointRadius: 3 },
+        ...(Object.keys(benchmarkKospi).length > 0 ? [{ label: 'KOSPI', data: kospiReturns.map(r => r.returnPct), borderColor: '#3fb950', tension: 0.3, pointRadius: 3 }] : [])
       ]
     },
     options: {
-      responsive: true, plugins: { legend: { position: 'top' } },
-      scales: { y: { ticks: { callback: v => v.toFixed(0) + '%' } } }
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top' } },
+      scales: { y: { ticks: { callback: v => v.toFixed(0) + '%', maxTicksLimit: 6 } },
+                x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 8 } } }
     }
   });
 
@@ -659,8 +670,10 @@ function renderPerformance(p) {
       ]
     },
     options: {
-      responsive: true, plugins: { legend: { position: 'top' } },
-      scales: { y: { ticks: { callback: v => v.toFixed(0) + '%p' } } }
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top' } },
+      scales: { y: { ticks: { callback: v => v.toFixed(0) + '%p', maxTicksLimit: 6 } },
+                x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 8 } } }
     }
   });
 }
@@ -729,8 +742,10 @@ function renderPerformanceMonthly(p) {
       ]
     },
     options: {
-      responsive: true, plugins: { legend: { position: 'top' } },
-      scales: { y: { ticks: { callback: v => v.toFixed(0) + '%' } } }
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top' } },
+      scales: { y: { ticks: { callback: v => v.toFixed(0) + '%', maxTicksLimit: 6 } },
+                x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 8 } } }
     }
   });
 
@@ -837,6 +852,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!benchmarkLoaded) await loadBenchmarkCSVs();
     const portfolio = computePortfolio(txns, currentPrices, currentFX, benchmarkFX);
     renderAll(portfolio);
+    // 데이터 로드 시 자동으로 시세 조회 (최초 1회)
+    await updatePrices();
   }
 
   // URL 로드
@@ -865,7 +882,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function updatePrices() {
     document.getElementById('btn-price').textContent = '업데이트 중...';
+    isPriceFetching = true;
+    if (rawTransactions.length > 0) {
+      const p = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
+      const filteredHoldings = selectedAccount === '전체'
+        ? p.currentHoldings
+        : computePortfolio(rawTransactions.filter(tx => `${tx.증권사}-${tx.계좌번호}` === selectedAccount), currentPrices, currentFX, benchmarkFX).currentHoldings;
+      renderHoldings(filteredHoldings);
+    }
     const ok = await fetchPricesFromAPI();
+    isPriceFetching = false;
     document.getElementById('btn-price').textContent = '시세';
     if (ok && rawTransactions.length > 0) {
       const portfolio = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
