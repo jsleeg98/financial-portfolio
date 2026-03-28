@@ -83,7 +83,7 @@ OUTPUT_COLUMNS = [
     "금액", "환율", "금액KRW", "통화", "증권사", "계좌번호", "비고",
 ]
 
-DEDUP_KEYS = ["거래일자", "유형", "종목코드", "수량", "금액", "통화"]
+DEDUP_KEYS = ["거래일자", "유형", "종목코드", "수량", "단가", "금액", "통화"]
 
 # ── 깨진 인코딩 fallback 매핑 ────────────────────────────────────────
 BROKEN_ENCODING_MAP = {
@@ -410,13 +410,21 @@ def parse_jonghap_file(filepath: str) -> list[dict]:
             })
             continue
 
-        # ── 국내주식 감자출고 ──
-        if sub_detail == "감자출고" and stock_field:
+        # ── 국내주식 기업 이벤트 (입고/출고) ──
+        domestic_event_types = {
+            "감자출고": "감자출고",
+            "감자입고": "입고",
+            "공모주입고": "입고",
+            "회사분할입고": "입고",
+            "액면분할입고": "입고",
+            "액면분할출고": "출고",
+        }
+        if sub_detail in domestic_event_types and stock_field:
             stock_name, stock_code = parse_domestic_stock_field(stock_field)
             if stock_name:
                 domestic_records.append({
                     "거래일자": trade_date,
-                    "유형": "감자출고",
+                    "유형": domestic_event_types[sub_detail],
                     "종목코드": stock_name,
                     "수량": parse_number(quantity_raw),
                     "단가": parse_number(unit_price_raw),
@@ -426,7 +434,7 @@ def parse_jonghap_file(filepath: str) -> list[dict]:
                     "통화": "KRW",
                     "증권사": broker,
                     "계좌번호": account,
-                    "비고": "감자출고",
+                    "비고": sub_detail,
                 })
             continue
 
@@ -514,14 +522,9 @@ def scan_files(path: str) -> list[str]:
     return []
 
 
-def deduplicate_and_sort(df: pd.DataFrame) -> pd.DataFrame:
-    """중복 제거 후 날짜순 정렬한다."""
-    before = len(df)
-    df = df.drop_duplicates(subset=DEDUP_KEYS, keep="first")
-    after = len(df)
-    if before != after:
-        print(f"  중복 제거: {before} → {after}건 ({before - after}건 제거)")
-    df = df.sort_values("거래일자").reset_index(drop=True)
+def sort_records(df: pd.DataFrame) -> pd.DataFrame:
+    """날짜순 정렬한다. 같은 날은 원본 파일 순서를 유지 (stable sort)."""
+    df = df.sort_values("거래일자", kind="stable").reset_index(drop=True)
     return df
 
 
@@ -581,7 +584,7 @@ def main():
     for col in ["종목코드", "통화", "비고"]:
         df[col] = df[col].fillna("")
 
-    df = deduplicate_and_sort(df)
+    df = sort_records(df)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_path, index=False, encoding="utf-8-sig")
