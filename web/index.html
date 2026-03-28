@@ -243,6 +243,7 @@ Chart.defaults.plugins.legend.labels.boxWidth = 12;
 Chart.defaults.plugins.legend.labels.padding = 8;
 
 let selectedAccount = '전체';
+let isPriceFetching = false;
 const ACCOUNT_COLORS = ['#3fb950', '#d29922', '#f85149', '#bc8cff'];
 
 // ── CSV 파싱 ────────────────────────────────────────────────────
@@ -411,7 +412,7 @@ function renderCards(p) {
 function renderHoldings(holdings) {
   const tbody = document.querySelector('#tbl-holdings tbody');
   const fmtPrice = (h) => h.currency === 'USD' ? fmtUSD(h.avgCost) : '₩' + fmt(h.avgCost);
-  const fmtCurPrice = (h) => h.currency === 'USD' ? fmtUSD(h.price) : '₩' + fmt(h.price);
+  const fmtCurPrice = (h) => isPriceFetching ? '<span style="color:var(--text-secondary);font-size:11px">시세 조회 중...</span>' : (h.currency === 'USD' ? fmtUSD(h.price) : '₩' + fmt(h.price));
   tbody.innerHTML = holdings.map(h => `
     <tr>
       <td><strong>${h.ticker}</strong></td>
@@ -850,6 +851,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!benchmarkLoaded) await loadBenchmarkCSVs();
     const portfolio = computePortfolio(txns, currentPrices, currentFX, benchmarkFX);
     renderAll(portfolio);
+    // 데이터 로드 시 자동으로 시세 조회 (최초 1회)
+    await updatePrices();
   }
 
   // URL 로드
@@ -858,7 +861,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!url) return;
     try {
       const txns = await fetchGoogleSheet(url);
-      loadData(txns);
+      await loadData(txns);
     } catch (e) { alert(e.message); }
   });
 
@@ -870,7 +873,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const file = e.target.files[0];
     if (!file) return;
     const txns = await handleFileUpload(file);
-    loadData(txns);
+    await loadData(txns);
   });
 
   // 시세 버튼
@@ -878,7 +881,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function updatePrices() {
     document.getElementById('btn-price').textContent = '업데이트 중...';
+    isPriceFetching = true;
+    if (rawTransactions.length > 0) {
+      const p = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
+      const filteredHoldings = selectedAccount === '전체'
+        ? p.currentHoldings
+        : computePortfolio(rawTransactions.filter(tx => `${tx.증권사}-${tx.계좌번호}` === selectedAccount), currentPrices, currentFX, benchmarkFX).currentHoldings;
+      renderHoldings(filteredHoldings);
+    }
     const ok = await fetchPricesFromAPI();
+    isPriceFetching = false;
     document.getElementById('btn-price').textContent = '시세';
     if (ok && rawTransactions.length > 0) {
       const portfolio = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
