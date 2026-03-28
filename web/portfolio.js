@@ -7,7 +7,7 @@ function isForeignTicker(ticker, currency) {
 }
 
 // ── 포트폴리오 계산 엔진 ────────────────────────────────────────
-function computePortfolio(txns, prices, fx) {
+function computePortfolio(txns, prices, fx, dailyFX = {}) {
   // 날짜순 정렬 후, 같은 날은 일별 그룹 처리로 정확한 순서 보장
   const dateSorted = [...txns].sort((a, b) => a.거래일자.localeCompare(b.거래일자));
   // 날짜별 그룹화
@@ -77,7 +77,8 @@ function computePortfolio(txns, prices, fx) {
       if (currency === 'KRW') {
         holdings[ticker].totalCostKRW += amount;
       } else {
-        holdings[ticker].totalCostKRW += amountKRW > 0 ? amountKRW : amount * (tx.환율 || fx);
+        const txFX = dailyFX[tx.거래일자] || tx.환율 || fx;
+        holdings[ticker].totalCostKRW += amountKRW > 0 ? amountKRW : amount * txFX;
       }
     } else if (tx.유형 === '매도' && ticker) {
       if (!holdings[ticker]) holdings[ticker] = { qty: 0, totalCost: 0, totalCostKRW: 0, currency };
@@ -253,7 +254,8 @@ function computePortfolio(txns, prices, fx) {
       if (tx.유형 === '매수' && ticker) {
         if (!twrHoldings[ticker]) twrHoldings[ticker] = { qty: 0, currency };
         twrHoldings[ticker].qty += tx.수량;
-        const costKRW = currency === 'KRW' ? amount : (amountKRW > 0 ? amountKRW : amount * (tx.환율 || fx));
+        const txFX = dailyFX[tx.거래일자] || tx.환율 || fx;
+        const costKRW = currency === 'KRW' ? amount : (amountKRW > 0 ? amountKRW : amount * txFX);
         externalFlow += costKRW;
       } else if (tx.유형 === '매도' && ticker) {
         if (twrHoldings[ticker] && twrHoldings[ticker].qty > 0) {
