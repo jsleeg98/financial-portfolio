@@ -29,7 +29,7 @@ feat: 계좌별 pill 선택 UI 및 per-account 추세 차트 추가
 ### 브랜치 전략
 
 - **main**: 완성된 기능만 존재하는 안정 브랜치. 직접 커밋하지 마라.
-- **feat/{기능명}**: 새 기능 작업 브랜치. 기능 완료 후 main에 merge한다.
+- **feat/{기능명}**: 새 기능 작업 브랜치. 기능 완료 후 PR을 열어 main에 merge한다.
 
 브랜치 워크플로우:
 ```bash
@@ -41,10 +41,11 @@ git checkout -b feat/{기능명}
 git add ... && git commit -m "feat: ..."
 git push -u origin feat/{기능명}
 
-# 기능 완료 후 main에 merge
-git checkout main
-git merge feat/{기능명} --no-ff -m "feat: {기능명} 통합"
-git push
+# 기능 완료 후 PR 생성
+gh pr create --title "{기능명}" --body "## Summary\n- ...\n\n## Test plan\n- [ ] ..."
+
+# PR merge (사용자가 직접 또는 승인 후)
+gh pr merge {번호} --merge
 ```
 
 ### 커밋 및 푸시 절차
