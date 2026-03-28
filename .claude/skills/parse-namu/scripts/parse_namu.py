@@ -5,12 +5,14 @@
 
 사용법:
     python parse_namu.py <파일 또는 폴더 경로>
+    python parse_namu.py --organize <계좌 폴더 경로>
     python parse_namu.py --sanitize <파일 또는 폴더 경로>
 
 예시:
-    python parse_namu.py resource/NH나무증권/2025/
     python parse_namu.py resource/
-    python parse_namu.py --sanitize resource/NH나무증권/2024/  # 받는통장표시내용 제거
+    python parse_namu.py resource/NH나무증권/202-01-292788/2025/
+    python parse_namu.py --organize resource/NH나무증권/202-02-292788/  # 미정리 파일 연도별 정리
+    python parse_namu.py --sanitize resource/  # 거래내역메모 제거
 """
 
 import os
@@ -510,6 +512,51 @@ def sanitize_jonghap_file(filepath: str) -> bool:
 
 # ── 공통 유틸 ────────────────────────────────────────────────────────
 
+# 정리가 필요한 파일명 패턴: 날짜가 YYYY.MM.DD 형식인 파일
+# 예: 종합거래내역(상세)_이동현_2020.01.01_2020.03.31.xls
+ORGANIZE_FILENAME_PATTERN = re.compile(
+    r".*_(\d{4})\.(\d{2})\.(\d{2})_(\d{4})\.(\d{2})\.(\d{2})\.xls$"
+)
+
+# 이미 정규화된 파일명 패턴: NH나무증권_{계좌번호}_{YYMMDD}-{YYMMDD}_종합.xls
+NORMALIZED_FILENAME_PATTERN = re.compile(
+    r"NH나무증권_[\d-]+_\d{6}-\d{6}_종합\.xls$"
+)
+
+
+def organize_account_folder(account_dir: Path, broker: str = "NH나무증권") -> int:
+    """계좌 폴더 내 미정리 파일을 연도별 폴더로 이동하고 파일명을 정규화한다.
+
+    정규화 규칙:
+    - 파일명: {broker}_{계좌번호}_{YYMMDD}-{YYMMDD}_종합.xls
+    - 위치: {account_dir}/{연도}/
+
+    이미 연도 하위 폴더에 있거나 정규화된 파일은 건너뛴다.
+    반환: 정리한 파일 수.
+    """
+    account = account_dir.name
+    moved = 0
+
+    for f in sorted(account_dir.glob("*.xls")):
+        m = ORGANIZE_FILENAME_PATTERN.match(f.name)
+        if not m:
+            print(f"  [SKIP] 패턴 불일치: {f.name}")
+            continue
+        y1, mo1, d1, y2, mo2, d2 = m.groups()
+        start = f"{y1[2:]}{mo1}{d1}"
+        end = f"{y2[2:]}{mo2}{d2}"
+        year = y1
+        new_name = f"{broker}_{account}_{start}-{end}_종합.xls"
+        year_dir = account_dir / year
+        year_dir.mkdir(exist_ok=True)
+        target = year_dir / new_name
+        f.rename(target)
+        print(f"  {f.name} → {year}/{new_name}")
+        moved += 1
+
+    return moved
+
+
 def scan_files(path: str) -> list[str]:
     """경로에서 .xls 파일 목록을 반환한다."""
     p = Path(path)
@@ -530,13 +577,44 @@ def sort_records(df: pd.DataFrame) -> pd.DataFrame:
 
 def main():
     if len(sys.argv) < 2:
-        print("사용법: python parse_namu.py <파일 또는 폴더 경로>")
+        print("사용법: python parse_namu.py [--organize|--sanitize] <파일 또는 폴더 경로>")
         print("예시:")
         print("  python parse_namu.py resource/")
-        print("  python parse_namu.py resource/NH나무증권/2025/")
+        print("  python parse_namu.py resource/NH나무증권/202-01-292788/2025/")
+        print("  python parse_namu.py --organize resource/NH나무증권/202-02-292788/  # 미정리 파일 연도별 정리")
+        print("  python parse_namu.py --sanitize resource/  # 거래내역메모 제거")
         sys.exit(1)
 
-    input_path = sys.argv[1]
+    args = sys.argv[1:]
+
+    # --organize: 계좌 폴더 내 파일명 정규화 및 연도별 이동
+    if args[0] == "--organize":
+        if len(args) < 2:
+            print("[ERROR] --organize 옵션에는 계좌 폴더 경로가 필요합니다.")
+            sys.exit(1)
+        account_dir = Path(args[1])
+        if not account_dir.is_dir():
+            print(f"[ERROR] 폴더를 찾을 수 없습니다: {account_dir}")
+            sys.exit(1)
+        print(f"\n=== 파일 정리: {account_dir} ===\n")
+        moved = organize_account_folder(account_dir)
+        print(f"\n정리 완료: {moved}개 파일 이동")
+        sys.exit(0)
+
+    # --sanitize: 살균만 수행 (파싱/CSV 출력 없음)
+    if args[0] == "--sanitize":
+        if len(args) < 2:
+            print("[ERROR] --sanitize 옵션에는 경로가 필요합니다.")
+            sys.exit(1)
+        files = scan_files(args[1])
+        jonghap_files = [f for f in files if is_jonghap_file(f)]
+        print(f"\n=== 살균 모드: {len(jonghap_files)}개 종합 파일 ===\n")
+        for f in jonghap_files:
+            sanitize_jonghap_file(f)
+        print("\n살균 완료")
+        sys.exit(0)
+
+    input_path = args[0]
     files = scan_files(input_path)
     if not files:
         print("처리할 .xls 파일이 없습니다.")

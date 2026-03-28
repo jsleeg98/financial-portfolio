@@ -33,7 +33,10 @@ python .claude/skills/parse-namu/scripts/parse_namu.py resource/NH나무증권/2
 # 단일 파일 파싱
 python .claude/skills/parse-namu/scripts/parse_namu.py resource/NH나무증권/202-01-292788/2024/NH나무증권_202-01-292788_240101-240331_종합.xls
 
-# 입력 파일 살균 (받는통장표시내용 제거)
+# 새 계좌 파일 정리 (파일명 정규화 + 연도별 폴더 이동)
+python .claude/skills/parse-namu/scripts/parse_namu.py --organize resource/NH나무증권/202-02-292788/
+
+# 입력 파일 살균 (거래내역메모 제거)
 python .claude/skills/parse-namu/scripts/parse_namu.py --sanitize resource/
 ```
 
