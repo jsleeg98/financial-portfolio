@@ -202,6 +202,7 @@ const SAMPLE_FX = 1450;
 let benchmarkSP500 = {};
 let benchmarkNasdaq = {};
 let benchmarkKospi = {};
+let benchmarkFX = {}; // USD/KRW 일별 환율 (매입원가 계산용)
 
 let rawTransactions = [];
 let currentPrices = { ...SAMPLE_PRICES };
@@ -282,6 +283,7 @@ async function loadBenchmarkCSVs() {
     ['../output/sp500_daily.csv', 'sp500'],
     ['../output/nasdaq100_daily.csv', 'nasdaq'],
     ['../output/kospi_daily.csv', 'kospi'],
+    ['../output/usdkrw_daily.csv', 'usdkrw'],
   ];
   for (const [path, target] of paths) {
     try {
@@ -293,11 +295,12 @@ async function loadBenchmarkCSVs() {
         if (target === 'sp500') benchmarkSP500 = map;
         else if (target === 'nasdaq') benchmarkNasdaq = map;
         else if (target === 'kospi') benchmarkKospi = map;
+        else if (target === 'usdkrw') benchmarkFX = map;
       }
     } catch {}
   }
   benchmarkLoaded = Object.keys(benchmarkSP500).length > 0;
-  if (benchmarkLoaded) console.log(`벤치마크 로드: SP500 ${Object.keys(benchmarkSP500).length}일, NASDAQ ${Object.keys(benchmarkNasdaq).length}일, KOSPI ${Object.keys(benchmarkKospi).length}일`);
+  if (benchmarkLoaded) console.log(`벤치마크 로드: SP500 ${Object.keys(benchmarkSP500).length}일, NASDAQ ${Object.keys(benchmarkNasdaq).length}일, KOSPI ${Object.keys(benchmarkKospi).length}일, USD/KRW ${Object.keys(benchmarkFX).length}일`);
 }
 
 
@@ -647,7 +650,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function loadData(txns) {
     rawTransactions = txns;
     if (!benchmarkLoaded) await loadBenchmarkCSVs();
-    const portfolio = computePortfolio(txns, currentPrices, currentFX);
+    const portfolio = computePortfolio(txns, currentPrices, currentFX, benchmarkFX);
     renderAll(portfolio);
   }
 
@@ -680,7 +683,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const ok = await fetchPricesFromAPI();
     document.getElementById('btn-price').textContent = '시세';
     if (ok && rawTransactions.length > 0) {
-      const portfolio = computePortfolio(rawTransactions, currentPrices, currentFX);
+      const portfolio = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
       renderAll(portfolio);
     }
   }
