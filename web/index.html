@@ -343,13 +343,17 @@ function computePortfolio(txns, prices, fx) {
   }
 
   const sortedDatesMain = Object.keys(dateGroupsForSort).sort();
-  const sorted = []; // for later reference (TWR etc)
+  const sorted = [];
+
   sortedDatesMain.forEach(date => {
     const ordered = getDayOrder(dateGroupsForSort[date]);
-    ordered.forEach(tx => { sorted.push(tx); });
+    ordered.forEach(tx => {
+      sorted.push(tx);
+      processTx(tx);
+    });
   });
 
-  sorted.forEach(tx => {
+  function processTx(tx) {
     const ticker = tx.종목코드;
     const month = tx.거래일자.slice(0, 7);
     const currency = tx.통화 || (isForeignTicker(ticker, '') ? 'USD' : 'KRW');
@@ -419,7 +423,7 @@ function computePortfolio(txns, prices, fx) {
       holdings: JSON.parse(JSON.stringify(holdings)),
       cashUSD, cashKRW, costKRW: snapCostKRW
     };
-  });
+  }
 
   // 가격 조회: 시세 > 마지막 거래 단가 순으로 fallback
   function getPrice(ticker) {
