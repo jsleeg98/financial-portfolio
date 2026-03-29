@@ -1,6 +1,6 @@
 ---
 name: update-portfolio
-description: NH나무증권 새 거래내역 XLS 파일 추가 후 CSV 재생성, 종목 매핑 확인, 테스트 검증, 스냅샷 업데이트, 커밋/푸시까지 전체 워크플로우를 자동화하는 스킬. 사용자가 새 거래내역 추가, 계좌 업데이트, XLS 파싱 후 검증, 포트폴리오 데이터 갱신을 요청할 때 이 스킬을 사용하라. "/update-portfolio"로도 트리거된다.
+description: NH나무증권·메리츠증권 새 거래내역 XLS 파일 추가 후 CSV 재생성, 종목 매핑 확인, 테스트 검증, 스냅샷 업데이트, Google Sheets 업로드, 커밋/푸시까지 전체 워크플로우를 자동화하는 스킬. 사용자가 새 거래내역 추가, 계좌 업데이트, XLS 파싱 후 검증, 포트폴리오 데이터 갱신을 요청할 때 이 스킬을 사용하라. "/update-portfolio"로도 트리거된다.
 ---
 
 # 포트폴리오 데이터 업데이트 워크플로우
@@ -8,46 +8,60 @@ description: NH나무증권 새 거래내역 XLS 파일 추가 후 CSV 재생성
 새 거래내역 XLS 파일이 추가되거나 기존 데이터를 갱신할 때 실행하는 표준 절차.
 이 스킬은 순서대로 실행하되, 각 단계의 결과를 확인하고 이슈가 있으면 즉시 해결한다.
 
+## 지원 증권사
+
+| 증권사 | 파서 스크립트 | 리소스 경로 |
+|--------|-------------|-----------|
+| NH나무증권 | `.claude/skills/parse-namu/scripts/parse_namu.py` | `resource/NH나무증권/` |
+| 메리츠증권 | `.claude/skills/parse-meritz/scripts/parse_meritz.py` | `resource/메리츠증권/` |
+
 ## 전제 조건 확인
 
 ```bash
 # .venv가 없으면 먼저 생성
-python3 -m venv .venv && source .venv/bin/activate && pip install pandas beautifulsoup4
+python3 -m venv .venv && source .venv/bin/activate && pip install pandas beautifulsoup4 xlrd gspread google-auth
 ```
 
 ## Step 1: XLS 파일 배치 확인
 
-사용자가 추가한 XLS 파일이 올바른 위치에 있는지 확인한다.
+사용자가 추가한 XLS 파일이 올바른 위치(연도 폴더)에 있는지 확인한다.
 
 ```
 resource/NH나무증권/{계좌번호}/{연도}/NH나무증권_{계좌번호}_{YYMMDD-YYMMDD}_종합.xls
+resource/메리츠증권/{계좌번호}/{연도}/메리츠증권_{계좌번호}_{YYMMDD-YYMMDD}_종합.xls
 ```
 
-파일명이 위 형식에 맞지 않거나 연도 폴더가 없으면 자동 정리가 필요하다:
+연도 폴더 미분류 파일은 `--organize`로 자동 정리:
 ```bash
 source .venv/bin/activate
 python .claude/skills/parse-namu/scripts/parse_namu.py --organize resource/NH나무증권/{계좌번호}/
+python .claude/skills/parse-meritz/scripts/parse_meritz.py --organize resource/메리츠증권/
 ```
 
 ## Step 2: CSV 전체 재생성
 
-기존 CSV를 삭제하고 처음부터 다시 생성한다. **절대로 기존 CSV에 덮어쓰거나 병합하지 마라** — 중복 누적의 원인이 된다.
+기존 CSV를 삭제하고 **모든 증권사를 순서대로** 파싱한다.
+**절대로 기존 CSV에 덮어쓰거나 병합하지 마라** — 중복 누적의 원인이 된다.
 
 ```bash
 rm -f output/종합거래내역.csv
 source .venv/bin/activate
-python .claude/skills/parse-namu/scripts/parse_namu.py resource/
+
+# 증권사별 파싱 (순서 중요: 첫 번째 파서가 CSV 생성, 이후는 병합)
+python .claude/skills/parse-namu/scripts/parse_namu.py resource/NH나무증권/
+python .claude/skills/parse-meritz/scripts/parse_meritz.py resource/메리츠증권/
 ```
 
-파싱 완료 후 총 건수와 계좌별 건수를 확인하라.
+파싱 완료 후 총 건수와 증권사·계좌별 건수를 확인하라.
 
 ## Step 3: 종목 매핑 확인
 
 파싱 결과 CSV에서 종목코드 컬럼을 검사한다. 아래 패턴이 보이면 매핑이 누락된 것이다:
 
-- **ISIN 형태** (`US1725731079`, `AU0000185993` 등): `ISIN_TO_TICKER` 누락
-- **한국어 종목명** (`써클 인터넷 그룹` 등): `ISIN_TO_TICKER` 누락
-- **영문 긴 이름** (`ISHARES 0 TO 3 MNTH TREASURY BND ETF` 등): `STOCK_NAME_TO_TICKER` 누락
+- **ISIN 형태** (`US1725731079`, `AU0000185993` 등): `ISIN_TO_TICKER` 누락 (parse_namu.py)
+- **한국어 종목명** (`써클 인터넷 그룹` 등): `ISIN_TO_TICKER` 누락 (parse_namu.py)
+- **영문 긴 이름** (`ISHARES 0 TO 3 MNTH TREASURY BND ETF` 등): `STOCK_NAME_TO_TICKER` 누락 (parse_namu.py)
+- **거래소 suffix** (`NEWSTOCK.NY` 등): `CODE_TO_TICKER` 누락 (parse_meritz.py)
 
 ```bash
 # 종목코드 목록 확인 (비정상적으로 긴 값 있으면 매핑 필요)
@@ -64,9 +78,8 @@ for c in sorted(codes):
 ```
 
 매핑 누락 발견 시:
-1. XLS 파일을 직접 파싱하여 ISIN 확인 (parse_namu.py의 파싱 로그 또는 파일 내용 검토)
-2. `parse_namu.py`의 `ISIN_TO_TICKER`와 `STOCK_NAME_TO_TICKER` 딕셔너리에 추가
-3. Step 2로 돌아가 CSV 재생성
+1. 해당 파서 스크립트의 매핑 딕셔너리에 추가
+2. Step 2로 돌아가 CSV 재생성
 
 ## Step 4: 테스트 실행
 
@@ -97,26 +110,36 @@ node tests/test_portfolio.js
 - `web/index.html`의 `SAMPLE_PRICES`에 해당 티커와 임시 현재가 추가
 - 이후 "시세" 버튼으로 실시간 업데이트 가능
 
-## Step 6: 커밋 및 푸시
+## Step 6: Google Sheets 업로드
+
+CSV를 Google Sheets에 업로드한다. 탭 구조:
+- `transactions` : 전체 합산 (대시보드가 이 탭을 읽음)
+- `{증권사}-{계좌번호}` : 계좌별 거래내역 (예: `NH나무증권-202-01-292788`)
+
+```bash
+source .venv/bin/activate
+python scripts/upload_to_sheets.py
+```
+
+업로드 후 각 탭의 건수가 올바른지 확인하라.
+
+## Step 7: 커밋 및 푸시
 
 변경된 파일을 확인하고 논리적 단위로 커밋한다.
 
-```bash
-git diff --staged
-```
-
 커밋 순서 예시:
-1. `parse_namu.py` 변경 (종목 매핑 추가): `feat: CRCL 종목 ISIN 매핑 추가`
+1. 파서 스크립트 변경 (종목 매핑 추가): `feat: NEWSTOCK 종목 티커 매핑 추가`
 2. `test_portfolio.js` 변경 (스냅샷 업데이트): `test: 계좌별 보유수량 스냅샷 업데이트`
-3. `web/index.html` 변경 (SAMPLE_PRICES): `feat: CRCL 샘플 현재가 추가`
+3. `web/index.html` 변경 (SAMPLE_PRICES): `feat: NEWSTOCK 샘플 현재가 추가`
 
 커밋 후 즉시 push하라.
 
 ## 체크리스트 요약
 
-- [ ] XLS 파일 올바른 위치에 배치
-- [ ] 기존 CSV 삭제 후 전체 재생성
-- [ ] 종목코드 컬럼에 ISIN/한국명 없음 확인
+- [ ] XLS 파일 올바른 위치(연도 폴더)에 배치
+- [ ] 기존 CSV 삭제 후 전체 재생성 (NH나무증권 → 메리츠증권 순)
+- [ ] 종목코드 컬럼에 ISIN/한국명/거래소코드 없음 확인
 - [ ] 19개 테스트 모두 통과
 - [ ] 새 종목 있으면 SAMPLE_PRICES 업데이트
+- [ ] Google Sheets 업로드 및 탭별 건수 확인
 - [ ] 변경사항 커밋 및 푸시
