@@ -96,6 +96,47 @@ def _parse_dollar_amounts(text: str) -> list[float]:
     return [parse_float(v) for v in re.findall(r'\(\$ ([\d,\.]+)\)', text)]
 
 
+# ── 현금잔고 행 생성 ──────────────────────────────────────────────────
+
+def _build_cash_record(records: list[dict], account: str) -> dict | None:
+    """거래 레코드에서 마지막 잔액(원)과 환율을 읽어 현금잔고 행을 반환한다.
+
+    토스증권 달러 계좌의 잔액(원) = USD 현금의 KRW 환산값.
+    USD 금액 = 잔액(원) / 환율.
+    """
+    last_balance_krw = 0.0
+    last_fx = 0.0
+    last_date = ""
+    for r in records:
+        b = r.get("_balance_krw", 0.0)
+        f = r.get("_fx", 0.0)
+        if b > 0 and f > 0:
+            last_balance_krw = b
+            last_fx = f
+            last_date = r.get("거래일자", last_date)
+
+    if last_balance_krw <= 0 or last_fx <= 0:
+        return None
+
+    usd_amount = round(last_balance_krw / last_fx, 6)
+    return {
+        "거래일자": last_date,
+        "유형": "현금잔고",
+        "종목코드": "",
+        "수량": 0.0,
+        "단가": 0.0,
+        "금액": usd_amount,
+        "환율": last_fx,
+        "금액KRW": last_balance_krw,
+        "통화": "USD",
+        "증권사": BROKER,
+        "계좌번호": account,
+        "비고": "현금잔고",
+        "_balance_krw": 0.0,  # 내부 키 (CSV 저장 시 제외)
+        "_fx": 0.0,
+    }
+
+
 # ── PDF 파싱 ─────────────────────────────────────────────────────────
 
 def _merge_duplicate_fills(records: list[dict]) -> list[dict]:
@@ -159,6 +200,7 @@ def _parse_main_line(line: str, account: str, in_dollar_section: bool) -> dict |
     fx = parse_float(tokens[-9])
     qty = parse_float(tokens[-8])
     amount_krw = parse_float(tokens[-7])
+    balance_krw = parse_float(tokens[-1])  # 잔액(원): 이 거래 후 KRW 현금 잔고
 
     # 종목명: tokens[2:-9] 합치기
     name_raw = ' '.join(tokens[2:-9])
@@ -192,6 +234,8 @@ def _parse_main_line(line: str, account: str, in_dollar_section: bool) -> dict |
         "계좌번호": account,
         "비고": name,
         "_isin": isin,        # 내부 추적용 (CSV 저장 시 제외)
+        "_balance_krw": balance_krw,  # 내부 추적용: 이 거래 후 잔액(원)
+        "_fx": fx,            # 내부 추적용: 이 거래의 환율
     }
 
 
@@ -288,6 +332,12 @@ def parse_toss_pdf(pdf_path: str) -> list[dict]:
 
     # 동일 조건 복수 거래 합산 (같은 날 같은 가격에 여러 번 분할 체결된 경우)
     records = _merge_duplicate_fills(records)
+
+    # 마지막 거래의 잔액(원)에서 현금잔고 추출
+    # 잔액(원) = USD 현금의 KRW 환산값 → USD 금액 = 잔액(원) / 환율
+    cash_record = _build_cash_record(records, account)
+    if cash_record:
+        records.append(cash_record)
 
     # 중간 CSV 저장 (OUTPUT_COLUMNS만 포함, _isin 등 내부 키 제외)
     if records:

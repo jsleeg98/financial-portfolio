@@ -419,7 +419,7 @@ function renderAll(portfolio) {
 }
 
 function renderCards(p) {
-  document.getElementById('v-total').textContent = fmtKRW(p.totalValueKRW);
+  document.getElementById('v-total').textContent = fmtKRW(p.netAssetKRW);
   document.getElementById('v-total-sub').textContent = '';
 
   const profitEl = document.getElementById('v-profit');
@@ -497,14 +497,18 @@ function renderHoldings(holdings) {
   const tbody = document.querySelector('#tbl-holdings tbody');
   const fmtPrice = (h) => h.currency === 'USD' ? fmtUSD(h.avgCost) : '₩' + fmt(h.avgCost);
   const fmtCurPrice = (h) => isPriceFetching ? '<span style="color:var(--text-secondary);font-size:11px">시세 조회 중...</span>' : (h.currency === 'USD' ? fmtUSD(h.price) : '₩' + fmt(h.price));
+  const fmtQty = (h) => {
+    if (h.isCash) return h.currency === 'USD' ? fmtUSD(h.qty) : '₩' + fmt(h.qty);
+    return h.qty % 1 === 0 ? h.qty : h.qty.toFixed(4);
+  };
   tbody.innerHTML = holdings.map(h => `
-    <tr>
+    <tr${h.isCash ? ' style="opacity:0.85"' : ''}>
       <td><strong>${h.ticker}</strong></td>
-      <td class="num">${h.qty % 1 === 0 ? h.qty : h.qty.toFixed(4)}</td>
-      <td class="num">${fmtPrice(h)}</td>
-      <td class="num">${fmtCurPrice(h)}</td>
+      <td class="num">${fmtQty(h)}</td>
+      <td class="num">${h.isCash ? '-' : fmtPrice(h)}</td>
+      <td class="num">${h.isCash ? '-' : fmtCurPrice(h)}</td>
       <td class="num">${fmtKRW(h.valueKRW)}</td>
-      <td class="num ${h.returnPct >= 0 ? 'positive' : 'negative'}">${fmtPct(h.returnPct)}</td>
+      <td class="num">${h.isCash ? '-' : `<span class="${h.returnPct >= 0 ? 'positive' : 'negative'}">${fmtPct(h.returnPct)}</span>`}</td>
       <td><div>${h.weight.toFixed(1)}%</div><div class="weight-bar"><div class="weight-fill" style="width:${h.weight}%"></div></div></td>
     </tr>
   `).join('');

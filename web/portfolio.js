@@ -20,6 +20,7 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
   const holdings = {};
   let cashUSD = 0;
   let cashKRW = 0;
+  const cashByAccount = {}; // "broker-account" → { USD?: number, KRW?: number }
 
   const monthMap = {};
 
@@ -98,6 +99,11 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
     } else if (tx.유형 === '입금') {
       if (currency === 'USD') cashUSD += amount;
       else cashKRW += amountKRW || amount;
+    } else if (tx.유형 === '현금잔고') {
+      const acctKey = `${tx.증권사 || ''}-${tx.계좌번호 || ''}`;
+      if (!cashByAccount[acctKey]) cashByAccount[acctKey] = {};
+      if (currency === 'USD') cashByAccount[acctKey].USD = amount;
+      else cashByAccount[acctKey].KRW = tx.금액KRW || amount;
     } else if (tx.유형 === '출고' && ticker) {
       // 액면분할 출고: 기존 주식 전량 회수 (원가 보존, 입고에서 수량 교체)
       // 원가는 유지하고 수량만 0으로 (입고에서 새 수량 설정)
@@ -129,6 +135,15 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
     };
   }
 
+  // cashByAccount 스냅샷이 있으면 accumulated cash 대신 사용
+  const _snapKeys = Object.keys(cashByAccount);
+  if (_snapKeys.some(k => cashByAccount[k].USD !== undefined)) {
+    cashUSD = _snapKeys.reduce((s, k) => s + (cashByAccount[k].USD || 0), 0);
+  }
+  if (_snapKeys.some(k => cashByAccount[k].KRW !== undefined)) {
+    cashKRW = _snapKeys.reduce((s, k) => s + (cashByAccount[k].KRW || 0), 0);
+  }
+
   // 가격 조회: 시세 > 마지막 거래 단가 순으로 fallback
   function getPrice(ticker) {
     return prices[ticker] || (lastTxPrice[ticker] ? lastTxPrice[ticker].price : 0);
@@ -154,17 +169,31 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
 
   // 매입금액 = 보유종목 KRW 원가 합계, 평가금액 = 보유종목 시가
   const evalKRW = totalValueKRW;
-  const netAssetKRW = evalKRW + cashUSD * fx + cashKRW;
+  const cashUSDValue = cashUSD * fx;
+  const cashKRWValue = cashKRW;
+  const netAssetKRW = evalKRW + cashUSDValue + cashKRWValue;
   const profitKRW = evalKRW - totalCostKRW;
   const profitRate = totalCostKRW > 0 ? (profitKRW / totalCostKRW) * 100 : 0;
 
-  // 비중
-  const totalVal = totalValueKRW > 0 ? totalValueKRW : 1;
+  // 비중: 주식 + 현금 합산 기준
+  const totalForWeight = totalValueKRW + cashUSDValue + cashKRWValue || 1;
   currentHoldings.forEach(h => {
-    h.weight = (h.valueKRW / totalVal) * 100;
+    h.weight = (h.valueKRW / totalForWeight) * 100;
     h.returnPct = h.avgCost > 0 ? ((h.price - h.avgCost) / h.avgCost) * 100 : 0;
   });
   currentHoldings.sort((a, b) => b.weight - a.weight);
+
+  // 현금 행 추가 (USD·KRW 각각, 현재 환율 기준 KRW 환산)
+  if (cashUSD > 0.001) currentHoldings.push({
+    ticker: '현금(USD)', qty: cashUSD, avgCost: 1, price: 1,
+    valueKRW: cashUSDValue, costKRW: cashUSDValue, currency: 'USD',
+    weight: cashUSDValue / totalForWeight * 100, returnPct: 0, isCash: true,
+  });
+  if (cashKRW > 0.5) currentHoldings.push({
+    ticker: '현금(KRW)', qty: cashKRW, avgCost: 1, price: 1,
+    valueKRW: cashKRWValue, costKRW: cashKRWValue, currency: 'KRW',
+    weight: cashKRWValue / totalForWeight * 100, returnPct: 0, isCash: true,
+  });
 
   // 월별 시계열
   const months = Object.keys(monthMap).sort();
