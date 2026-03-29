@@ -23,6 +23,7 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
   const cashByAccount = {}; // "broker-account" → { USD?: number, KRW?: number }
 
   const monthMap = {};
+  const monthlyRealizedMap = {}; // month → realized KRW (매도 손익 + 배당)
 
   // 거래내역 기반 마지막 단가 추적 (시세 미조회 시 fallback)
   const lastTxPrice = {};
@@ -85,8 +86,13 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
       if (!holdings[ticker]) holdings[ticker] = { qty: 0, totalCost: 0, totalCostKRW: 0, currency };
       if (holdings[ticker].qty > 0) {
         const ratio = tx.수량 / holdings[ticker].qty;
+        const costDeducted = holdings[ticker].totalCostKRW * ratio;
+        const txFX = dailyFX[tx.거래일자] || tx.환율 || fx;
+        const sellAmountKRW = currency === 'KRW' ? amount : (amountKRW > 0 ? amountKRW : amount * txFX);
+        if (!monthlyRealizedMap[month]) monthlyRealizedMap[month] = 0;
+        monthlyRealizedMap[month] += sellAmountKRW - costDeducted;
         holdings[ticker].totalCost -= holdings[ticker].totalCost * ratio;
-        holdings[ticker].totalCostKRW -= holdings[ticker].totalCostKRW * ratio;
+        holdings[ticker].totalCostKRW -= costDeducted;
         holdings[ticker].qty -= tx.수량;
         if (holdings[ticker].qty < 0.0001) holdings[ticker] = { qty: 0, totalCost: 0, totalCostKRW: 0, currency };
       }
@@ -94,6 +100,9 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
       if (currency === 'USD') cashUSD += amount;
       else cashKRW += amount;
     } else if (tx.유형 === '배당') {
+      if (!monthlyRealizedMap[month]) monthlyRealizedMap[month] = 0;
+      const txFX = dailyFX[tx.거래일자] || tx.환율 || fx;
+      monthlyRealizedMap[month] += currency === 'KRW' ? amount : (amountKRW > 0 ? amountKRW : amount * txFX);
       if (currency === 'USD') cashUSD += amount;
       else cashKRW += amount;
     } else if (tx.유형 === '입금') {
@@ -220,6 +229,15 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
     const pnl = prevVal !== null ? valKRW - prevVal - (costKRW - (monthlyTrend.length >= 2 ? monthlyTrend[monthlyTrend.length - 2].principal : 0)) : 0;
     monthlyPnL.push({ month: m, pnl });
     prevVal = valKRW;
+  });
+
+  // 월별 실현손익 + 누적
+  const monthlyRealizedPnL = [];
+  let cumRealized = 0;
+  months.forEach(m => {
+    const realized = monthlyRealizedMap[m] || 0;
+    cumRealized += realized;
+    monthlyRealizedPnL.push({ month: m, realized: Math.round(realized), cumulative: Math.round(cumRealized) });
   });
 
   // 누적수익률 (월별)
@@ -354,7 +372,7 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
   return {
     currentHoldings, totalValueKRW: evalKRW, profitKRW, profitRate,
     investedKRW: totalCostKRW, netAssetKRW,
-    monthlyTrend, monthlyPnL, cumulativeReturn,
+    monthlyTrend, monthlyPnL, monthlyRealizedPnL, cumulativeReturn,
     cashUSD, cashKRW, dailySnapshots, firstTxDate, twrReturn
   };
 }

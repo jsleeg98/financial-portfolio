@@ -177,6 +177,7 @@ tr:last-child td { border-bottom: none; }
     </div>
     <div class="chart-box"><h3>월별 계좌 추세</h3><div class="chart-wrap"><canvas id="chart-trend"></canvas></div></div>
     <div class="chart-box"><h3>월별 손익</h3><div class="chart-wrap"><canvas id="chart-pnl"></canvas></div></div>
+    <div class="chart-box"><h3>월별 실현손익</h3><div class="chart-wrap"><canvas id="chart-realized"></canvas></div></div>
     <div class="table-box"><h3>보유 종목</h3><div class="table-scroll"><table id="tbl-holdings"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평균단가</th><th class="num">현재가</th><th class="num">평가액</th><th class="num">수익률</th><th>비중</th></tr></thead><tbody></tbody></table></div></div>
   </section>
 
@@ -580,6 +581,46 @@ function renderPnLChart(p) {
   });
 }
 
+function renderRealizedPnLChart(p) {
+  destroyChart('realized');
+  const labels = p.monthlyRealizedPnL.map(m => m.month);
+  const realizedData = p.monthlyRealizedPnL.map(m => m.realized);
+  const cumulativeData = p.monthlyRealizedPnL.map(m => m.cumulative);
+  charts.realized = new Chart(document.getElementById('chart-realized'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '월 실현손익',
+          data: realizedData,
+          backgroundColor: realizedData.map(v => v >= 0 ? 'rgba(63,185,80,0.7)' : 'rgba(248,81,73,0.7)'),
+          yAxisID: 'y'
+        },
+        {
+          label: '누적 실현손익',
+          data: cumulativeData,
+          type: 'line',
+          borderColor: '#58a6ff',
+          backgroundColor: 'transparent',
+          fill: false,
+          tension: 0.3,
+          pointRadius: 2,
+          yAxisID: 'y'
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top' } },
+      scales: {
+        y: { ticks: { callback: v => (v/10000).toFixed(0) + '만', maxTicksLimit: 6 } },
+        x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 8 } }
+      }
+    }
+  });
+}
+
 function renderCharts(p, allTxns) {
   const labels = p.monthlyTrend.map(m => m.month);
 
@@ -625,6 +666,7 @@ function renderCharts(p, allTxns) {
     ? computePortfolio(filteredTxns, currentPrices, currentFX, benchmarkFX)
     : p;
   renderPnLChart(pnlPortfolio);
+  renderRealizedPnLChart(pnlPortfolio);
 }
 
 function renderPerformance(p) {
