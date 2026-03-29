@@ -251,6 +251,8 @@ Chart.defaults.plugins.legend.labels.padding = 8;
 let selectedAccount = '전체';
 let selectedHistoryAccount = '전체';
 let isPriceFetching = false;
+// 과거 월별 시세 캐시: { ticker: { "YYYY-MM": price } } — localStorage에 영구 저장
+let priceHistory = {};
 // 대시보드 보유종목 목록에서 숨길 종목 (총자산 계산에는 포함됨)
 // web/data/portfolio_config.json의 excludedTickers 값으로 초기화됨
 let excludedTickers = [];
@@ -380,7 +382,7 @@ function buildAccountSelector(txns) {
       container.querySelectorAll('.pill').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       const filtered = filterTxns(rawTransactions, selectedAccount);
-      const p = computePortfolio(filtered, currentPrices, currentFX, benchmarkFX);
+      const p = computePortfolio(filtered, currentPrices, currentFX, benchmarkFX, priceHistory);
       renderCards(p);
       renderHoldings(p.currentHoldings);
       renderPnLChart(p);
@@ -414,7 +416,7 @@ function renderAll(portfolio) {
   const filteredTxns = filterTxns(rawTransactions, selectedAccount);
   const filteredPortfolio = selectedAccount === '전체'
     ? portfolio
-    : computePortfolio(filteredTxns, currentPrices, currentFX, benchmarkFX);
+    : computePortfolio(filteredTxns, currentPrices, currentFX, benchmarkFX, priceHistory);
   renderCards(filteredPortfolio);
   renderHoldings(filteredPortfolio.currentHoldings);
   buildHistoryAccountSelector(rawTransactions);
@@ -658,7 +660,7 @@ function renderCharts(p, allTxns) {
   // 계좌별 월별 평가액 계산 (2개 이상 계좌일 때만)
   const accounts = allTxns ? getAccounts(allTxns) : [];
   const accountDatasets = accounts.length > 1 ? accounts.map((acc, i) => {
-    const ap = computePortfolio(filterTxns(allTxns, acc), currentPrices, currentFX, benchmarkFX);
+    const ap = computePortfolio(filterTxns(allTxns, acc), currentPrices, currentFX, benchmarkFX, priceHistory);
     const apMap = {};
     ap.monthlyTrend.forEach(m => { apMap[m.month] = Math.round(m.valuation); });
     return {
@@ -694,7 +696,7 @@ function renderCharts(p, allTxns) {
   // Chart 2: 월별 손익 (선택 계좌 기준)
   const filteredTxns = allTxns ? filterTxns(allTxns, selectedAccount) : null;
   const pnlPortfolio = (selectedAccount !== '전체' && filteredTxns)
-    ? computePortfolio(filteredTxns, currentPrices, currentFX, benchmarkFX)
+    ? computePortfolio(filteredTxns, currentPrices, currentFX, benchmarkFX, priceHistory)
     : p;
   renderPnLChart(pnlPortfolio);
   renderRealizedPnLChart(pnlPortfolio);
@@ -929,6 +931,59 @@ function renderPerformanceMonthly(p) {
   destroyChart('gap');
 }
 
+// ── 과거 시세 캐시 ────────────────────────────────────────────────
+function savePriceHistory() {
+  try { localStorage.setItem('priceHistory', JSON.stringify(priceHistory)); } catch(e) { console.warn('과거 시세 저장 실패', e); }
+}
+
+// 아직 캐시에 없는 (ticker, month) 쌍 계산
+function computeNeededHistoricalPrices() {
+  const todayYM = new Date().toISOString().slice(0, 7);
+  const p = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX, priceHistory);
+  const needed = {};
+  p.monthlyHoldings.forEach(({ month, usdTickers }) => {
+    if (month >= todayYM) return;
+    usdTickers.forEach(ticker => {
+      if (priceHistory[ticker]?.[month] == null) {
+        if (!needed[ticker]) needed[ticker] = [];
+        needed[ticker].push(month);
+      }
+    });
+  });
+  return needed;
+}
+
+// 종목별 월별 시세를 Yahoo Finance에서 일괄 조회하고 캐시에 저장
+async function fetchHistoricalPrices(neededMap) {
+  const tickers = Object.keys(neededMap);
+  if (!tickers.length) return;
+  let fetched = 0;
+  for (const ticker of tickers) {
+    const months = neededMap[ticker].sort();
+    const period1 = Math.floor(new Date(`${months[0]}-01T00:00:00Z`).getTime() / 1000);
+    const period2 = Math.floor(Date.now() / 1000);
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1mo&period1=${period1}&period2=${period2}`;
+      const data = await fetchWithProxy(url);
+      const result = data.chart?.result?.[0];
+      if (!result) continue;
+      const timestamps = result.timestamp || [];
+      const closes = result.indicators?.quote?.[0]?.close || [];
+      if (!priceHistory[ticker]) priceHistory[ticker] = {};
+      timestamps.forEach((ts, i) => {
+        if (closes[i] == null) return;
+        const d = new Date(ts * 1000);
+        const m = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+        priceHistory[ticker][m] = closes[i];
+      });
+      fetched++;
+    } catch(e) {
+      console.warn(`${ticker} 과거 시세 실패:`, e);
+    }
+  }
+  if (fetched > 0) savePriceHistory();
+}
+
 // ── 시세 업데이트 (Yahoo Finance, 무료) ─────────────────────────
 async function fetchWithProxy(url) {
   const enc = encodeURIComponent(url);
@@ -1019,6 +1074,9 @@ async function fetchPricesFromAPI() {
 
 // ── 이벤트 ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  // 과거 시세 캐시 로드 (localStorage)
+  try { priceHistory = JSON.parse(localStorage.getItem('priceHistory') || '{}'); } catch { priceHistory = {}; }
+
   // 탭 전환
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1044,7 +1102,7 @@ document.addEventListener('DOMContentLoaded', () => {
     selectedAccount = '전체';
     selectedHistoryAccount = '전체';
     if (!benchmarkLoaded) await loadBenchmarkCSVs();
-    const portfolio = computePortfolio(txns, currentPrices, currentFX, benchmarkFX);
+    const portfolio = computePortfolio(txns, currentPrices, currentFX, benchmarkFX, priceHistory);
     renderAll(portfolio);
     // 데이터 로드 시 자동으로 시세 조회 (최초 1회)
     await updatePrices();
@@ -1075,22 +1133,32 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-price').addEventListener('click', () => updatePrices());
 
   async function updatePrices() {
-    document.getElementById('btn-price').textContent = '업데이트 중...';
+    const btnEl = document.getElementById('btn-price');
+    btnEl.textContent = '업데이트 중...';
     isPriceFetching = true;
     try {
       if (rawTransactions.length > 0) {
-        const p = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
+        const p = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX, priceHistory);
         const filteredHoldings = selectedAccount === '전체'
           ? p.currentHoldings
-          : computePortfolio(rawTransactions.filter(tx => `${tx.증권사}-${tx.계좌번호}` === selectedAccount), currentPrices, currentFX, benchmarkFX).currentHoldings;
+          : computePortfolio(rawTransactions.filter(tx => `${tx.증권사}-${tx.계좌번호}` === selectedAccount), currentPrices, currentFX, benchmarkFX, priceHistory).currentHoldings;
         renderHoldings(filteredHoldings);  // 로딩 표시용
       }
       await fetchPricesFromAPI();
+      // 과거 월별 시세 조회 (캐시에 없는 종목/월만)
+      if (rawTransactions.length > 0) {
+        const neededMap = computeNeededHistoricalPrices();
+        const needCount = Object.values(neededMap).reduce((s, v) => s + v.length, 0);
+        if (needCount > 0) {
+          btnEl.textContent = `과거 시세 조회 중... (${Object.keys(neededMap).length}종목)`;
+          await fetchHistoricalPrices(neededMap);
+        }
+      }
     } finally {
       isPriceFetching = false;  // renderAll 전에 반드시 false로
-      document.getElementById('btn-price').textContent = '시세';
+      btnEl.textContent = '시세';
       if (rawTransactions.length > 0) {
-        const portfolio = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
+        const portfolio = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX, priceHistory);
         renderAll(portfolio);  // 성공/실패 무관하게 항상 재렌더 (로딩 표시 제거)
       }
     }

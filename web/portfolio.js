@@ -7,7 +7,7 @@ function isForeignTicker(ticker, currency) {
 }
 
 // ── 포트폴리오 계산 엔진 ────────────────────────────────────────
-function computePortfolio(txns, prices, fx, dailyFX = {}) {
+function computePortfolio(txns, prices, fx, dailyFX = {}, historicalPrices = {}) {
   // 날짜순 정렬 후, 같은 날은 일별 그룹 처리로 정확한 순서 보장
   const dateSorted = [...txns].sort((a, b) => a.거래일자.localeCompare(b.거래일자));
   // 날짜별 그룹화
@@ -213,14 +213,36 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
   const monthlyPnL = [];
   let prevVal = null;
 
+  const todayYM = new Date().toISOString().slice(0, 7);
+  const sortedFXDates = Object.keys(dailyFX).sort();
+
+  // 해당 월의 마지막 가용 FX (benchmarkFX 기반)
+  function getMonthEndFX(month) {
+    const upperBound = `${month}-31`;
+    let mfx = fx;
+    for (const d of sortedFXDates) {
+      if (d <= upperBound) mfx = dailyFX[d];
+      else break;
+    }
+    return mfx;
+  }
+
   months.forEach(m => {
     const snap = monthMap[m];
+    const isHistorical = m < todayYM;
+    const monthFX = isHistorical ? getMonthEndFX(m) : fx;
+
     let valKRW = 0;
     Object.entries(snap.holdings).forEach(([t, h]) => {
       if (h.qty > 0) {
-        const p = getPrice(t);
+        let p;
+        if (isHistorical && historicalPrices[t]?.[m] != null) {
+          p = historicalPrices[t][m];
+        } else {
+          p = getPrice(t);
+        }
         const isUSD = h.currency === 'USD';
-        valKRW += isUSD ? h.qty * p * fx : h.qty * p;
+        valKRW += isUSD ? h.qty * p * monthFX : h.qty * p;
       }
     });
     const costKRW = snap.costKRW;
@@ -230,6 +252,14 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
     monthlyPnL.push({ month: m, pnl });
     prevVal = valKRW;
   });
+
+  // 과거 시세 조회 필요 목록 계산용 (USD 종목만)
+  const monthlyHoldings = months.map(m => ({
+    month: m,
+    usdTickers: Object.entries(monthMap[m].holdings)
+      .filter(([, h]) => h.qty > 0 && h.currency === 'USD')
+      .map(([t]) => t)
+  }));
 
   // 월별 실현손익 + 누적
   const monthlyRealizedPnL = [];
@@ -372,7 +402,7 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
   return {
     currentHoldings, totalValueKRW: evalKRW, profitKRW, profitRate,
     investedKRW: totalCostKRW, netAssetKRW,
-    monthlyTrend, monthlyPnL, monthlyRealizedPnL, cumulativeReturn,
+    monthlyTrend, monthlyPnL, monthlyRealizedPnL, monthlyHoldings, cumulativeReturn,
     cashUSD, cashKRW, dailySnapshots, firstTxDate, twrReturn
   };
 }
