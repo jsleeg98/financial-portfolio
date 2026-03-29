@@ -19,9 +19,9 @@
 - [x] 보유 종목 비중을 원형 그래프로 변경
 - [ ] 거래내역 탭에 증권사/계좌번호별 필터링 기능 추가
 - [ ] 메리츠증권 3066-6156-01 계좌 추가
-- [ ] 종합거래내역 Google Sheets 연동
-  - [ ] Google Sheets API 서비스 계정 발급 및 인증 설정
-  - [ ] 종합거래내역.csv → Google Sheets 업로드 스크립트 작성 (`scripts/upload_to_sheets.py`)
-  - [ ] parse-namu 파싱 완료 후 Sheets 자동 업로드 연동
-  - [ ] Google Sheets 공개 CSV export URL 설정
-  - [ ] HTML에서 로컬 CSV 대신 Sheets URL로 데이터 로딩
+- [x] 종합거래내역 Google Sheets 연동
+  - [x] Google Sheets API 서비스 계정 발급 및 인증 설정
+  - [x] 종합거래내역.csv → Google Sheets 업로드 스크립트 작성 (`scripts/upload_to_sheets.py`)
+  - [x] parse-namu 파싱 완료 후 Sheets 자동 업로드 연동
+  - [x] Google Sheets 공개 CSV export URL 설정
+  - [x] HTML에서 로컬 CSV 대신 Sheets URL로 데이터 로딩
