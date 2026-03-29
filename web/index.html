@@ -219,6 +219,11 @@ tr:last-child td { border-bottom: none; }
 
 <script src="portfolio.js"></script>
 <script>
+// ── 설정 ────────────────────────────────────────────────────────
+// Google Sheets 자동 로드 URL (비워두면 수동 입력)
+// 설정 방법: Google 스프레드시트 URL 전체를 붙여넣기
+const SHEET_URL = '';
+
 // ── 상수 ────────────────────────────────────────────────────────
 const SAMPLE_PRICES = {
   // 해외 (USD)
@@ -925,6 +930,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 벤치마크 CSV 자동 로드
   loadBenchmarkCSVs();
+
+  // Google Sheets URL이 설정된 경우 자동 로드
+  if (SHEET_URL) {
+    document.getElementById('url-input').value = SHEET_URL;
+    fetchGoogleSheet(SHEET_URL).then(loadData).catch(e => console.warn('자동 로드 실패:', e.message));
+  }
 
   // 데이터 로드
   async function loadData(txns) {

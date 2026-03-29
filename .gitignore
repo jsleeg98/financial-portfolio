@@ -1,6 +1,8 @@
 # custom
 resource
 output
+credentials/
+.env
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

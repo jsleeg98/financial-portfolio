@@ -6,11 +6,13 @@
 사용법:
     python parse_namu.py <파일 또는 폴더 경로>
     python parse_namu.py --organize <계좌 폴더 경로>
+    python parse_namu.py --upload <파일 또는 폴더 경로>
 
 예시:
     python parse_namu.py resource/
     python parse_namu.py resource/NH나무증권/202-01-292788/2025/
     python parse_namu.py --organize resource/NH나무증권/202-02-292788/  # 미정리 파일 연도별 정리
+    python parse_namu.py --upload resource/  # 파싱 후 Google Sheets 자동 업로드
 
 참고: 종합거래내역 파일 파싱 시 거래내역메모 내용을 항상 자동으로 제거한다.
 """
@@ -600,14 +602,19 @@ def sort_records(df: pd.DataFrame) -> pd.DataFrame:
 
 def main():
     if len(sys.argv) < 2:
-        print("사용법: python parse_namu.py [--organize] <파일 또는 폴더 경로>")
+        print("사용법: python parse_namu.py [--organize|--upload] <파일 또는 폴더 경로>")
         print("예시:")
         print("  python parse_namu.py resource/")
         print("  python parse_namu.py resource/NH나무증권/202-01-292788/2025/")
         print("  python parse_namu.py --organize resource/NH나무증권/202-02-292788/  # 미정리 파일 연도별 정리")
+        print("  python parse_namu.py --upload resource/  # 파싱 후 Google Sheets 자동 업로드")
         sys.exit(1)
 
     args = sys.argv[1:]
+
+    # --upload 플래그 감지 및 분리
+    do_upload = "--upload" in args
+    args = [a for a in args if a != "--upload"]
 
     # --organize: 계좌 폴더 내 파일명 정규화 및 연도별 이동
     if args[0] == "--organize":
@@ -713,6 +720,20 @@ def main():
         stock_counts = df[df["종목코드"] != ""]["종목코드"].value_counts()
         for s, cnt in stock_counts.items():
             print(f"  {s}: {cnt}건")
+
+    if do_upload:
+        print(f"\n=== Google Sheets 업로드 ===")
+        upload_script = Path(__file__).resolve().parent.parent.parent.parent / "scripts" / "upload_to_sheets.py"
+        if not upload_script.exists():
+            print(f"[ERROR] 업로드 스크립트를 찾을 수 없습니다: {upload_script}")
+        else:
+            import subprocess
+            result = subprocess.run(
+                [sys.executable, str(upload_script)],
+                cwd=str(Path.cwd()),
+            )
+            if result.returncode != 0:
+                print("[ERROR] 업로드 실패. 위 오류를 확인하세요.")
 
 
 if __name__ == "__main__":
