@@ -209,6 +209,7 @@ tr:last-child td { border-bottom: none; }
 
   <!-- Tab 3: 거래내역 -->
   <section id="tab-history">
+    <div id="history-account-selector" class="account-selector"></div>
     <div class="table-box"><div class="table-scroll"><table id="tbl-txns"><thead><tr><th>일자</th><th>유형</th><th>종목</th><th class="num">수량</th><th class="num">단가</th><th class="num">금액</th><th class="num">금액(KRW)</th><th>증권사</th><th>계좌번호</th></tr></thead><tbody></tbody></table></div></div>
   </section>
 
@@ -247,6 +248,7 @@ Chart.defaults.plugins.legend.labels.boxWidth = 12;
 Chart.defaults.plugins.legend.labels.padding = 8;
 
 let selectedAccount = '전체';
+let selectedHistoryAccount = '전체';
 let isPriceFetching = false;
 const ACCOUNT_COLORS = ['#3fb950', '#d29922', '#f85149', '#bc8cff'];
 
@@ -382,6 +384,24 @@ function buildAccountSelector(txns) {
   });
 }
 
+function buildHistoryAccountSelector(txns) {
+  const container = document.getElementById('history-account-selector');
+  const accounts = getAccounts(txns);
+  if (accounts.length <= 1) { container.innerHTML = ''; return; }
+  const all = ['전체', ...accounts];
+  container.innerHTML = all.map(a =>
+    `<button class="pill${a === selectedHistoryAccount ? ' active' : ''}" data-account="${a}">${a}</button>`
+  ).join('');
+  container.querySelectorAll('.pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectedHistoryAccount = btn.dataset.account;
+      container.querySelectorAll('.pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderTransactions(rawTransactions);
+    });
+  });
+}
+
 function renderAll(portfolio) {
   document.getElementById('empty-state').style.display = 'none';
   buildAccountSelector(rawTransactions);
@@ -392,6 +412,7 @@ function renderAll(portfolio) {
     : computePortfolio(filteredTxns, currentPrices, currentFX, benchmarkFX);
   renderCards(filteredPortfolio);
   renderHoldings(filteredPortfolio.currentHoldings);
+  buildHistoryAccountSelector(rawTransactions);
   renderTransactions(rawTransactions);
   renderCharts(portfolio, rawTransactions);
   renderPerformance(portfolio);
@@ -491,7 +512,8 @@ function renderHoldings(holdings) {
 }
 
 function renderTransactions(txns) {
-  const reversed = [...txns].reverse();
+  const filtered = filterTxns(txns, selectedHistoryAccount);
+  const reversed = [...filtered].reverse();
   const tbody = document.querySelector('#tbl-txns tbody');
   tbody.innerHTML = reversed.map(tx => {
     const badgeClass = tx.유형 === '매수' ? 'badge-buy' : (tx.유형 === '매도' || tx.유형 === '감자출고') ? 'badge-sell' : 'badge-deposit';
@@ -930,6 +952,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function loadData(txns) {
     rawTransactions = txns;
     selectedAccount = '전체';
+    selectedHistoryAccount = '전체';
     if (!benchmarkLoaded) await loadBenchmarkCSVs();
     const portfolio = computePortfolio(txns, currentPrices, currentFX, benchmarkFX);
     renderAll(portfolio);
