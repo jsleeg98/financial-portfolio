@@ -105,6 +105,7 @@ python scripts/fetch_benchmark.py
 |--------|-------------|---------|-----------|
 | NH나무증권 | `.claude/skills/parse-namu/scripts/parse_namu.py` | HTML-based XLS (EUC-KR) | `resource/NH나무증권/{계좌번호}/{연도}/` |
 | 메리츠증권 | `.claude/skills/parse-meritz/scripts/parse_meritz.py` | OLE2 Excel XLS (EUC-KR) | `resource/메리츠증권/{계좌번호}/{연도}/` |
+| 토스증권 | `.claude/skills/parse-toss/scripts/parse_toss.py` | PDF 거래내역 | `resource/토스증권/{계좌번호}/{연도}/` |
 
 ### 새 거래 내역 추가 워크플로우
 
@@ -243,6 +244,12 @@ SGOV: 100.65$
 - 원인: `Chart.register(ChartDataLabels)`가 스크립트 최상위에 있어 CDN 실패 시 ReferenceError → 이하 이벤트 리스너 등록 코드 미실행
 - 해결: `typeof ChartDataLabels !== 'undefined'` 가드로 보호
 
+**NH나무증권 계좌 필터링 시 현금(USD) 비중 비정상 급등**
+- 증상: NH나무증권 계좌만 선택 시 현금(USD)이 포트폴리오의 70%+ 점유
+- 원인: `portfolio.js`에서 매도 시 cashUSD를 누적하지만 매수 시 차감하지 않음. NH나무증권은 `현금잔고 USD` 스냅샷을 CSV에 기록하지 않으므로, 스냅샷 override가 발동하지 않아 2020년 이후 전체 매도 누적액이 그대로 cashUSD로 잔류
+- 해결: `portfolio.js`의 스냅샷 override 로직에 `else { cashUSD = 0; }` 추가. NH나무증권은 환전→즉시매수 패턴이므로 스냅샷 없으면 USD 현금은 0으로 처리
+- 주의: 새 증권사 파서 추가 시, USD 현금잔고를 파서에서 스냅샷(`유형: 현금잔고, 통화: USD`)으로 출력하지 않으면 동일 증상 재발. 반드시 파서에서 `현금잔고 USD` 레코드를 생성하거나, 환전→즉시매수 패턴임을 확인 후 0 처리가 맞는지 검토하라.
+
 ---
 
 ## 테스트
@@ -254,7 +261,7 @@ node tests/test_portfolio.js
 ```
 
 - 외부 의존성 없음 (Node.js 18+ 내장 `node:test` 사용)
-- 총 19개 테스트
+- 총 25개 테스트
 
 #### 테스트 계층
 
@@ -263,6 +270,7 @@ node tests/test_portfolio.js
 | 단위 (1-8) | 인라인 픽스처 | `computePortfolio` 계산 로직 회귀 방지 |
 | 고정 데이터 (9-14) | `tests/fixtures/종합거래내역.csv` | 실제 데이터 기반 로직 검증 (불변) |
 | 라이브 CSV (15-19) | `output/종합거래내역.csv` | CSV 무결성 + 계좌별 보유수량 스냅샷 |
+| 현금잔고 단위 (20-25) | 인라인 픽스처 | 현금잔고 SET/합산/weight 계산 로직 회귀 방지 |
 
 ### 테스트 실행 시점
 

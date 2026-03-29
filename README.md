@@ -49,6 +49,7 @@ financial-portfolio/
 └── .claude/skills/
     ├── parse-namu/             # NH나무증권 XLS → CSV 파서 스킬
     ├── parse-meritz/           # 메리츠증권 XLS → CSV 파서 스킬
+    ├── parse-toss/             # 토스증권 PDF → CSV 파서 스킬
     └── update-portfolio/       # 거래내역 갱신 자동화 스킬 (파싱→검증→Sheets 업로드)
 ```
 
@@ -77,8 +78,13 @@ python .claude/skills/parse-namu/scripts/parse_namu.py resource/NH나무증권/
 python .claude/skills/parse-meritz/scripts/parse_meritz.py resource/메리츠증권/
 ```
 
+**토스증권** (`resource/토스증권/{계좌번호}/{연도}/`):
+```bash
+python .claude/skills/parse-toss/scripts/parse_toss.py resource/토스증권/
+```
+
 - 정규화되지 않은 파일명은 `--organize` 옵션으로 연도별 폴더 자동 정리
-- 두 파서 모두 `output/종합거래내역.csv`에 병합 출력
+- 모든 파서가 `output/종합거래내역.csv`에 병합 출력
 
 ### 3. 벤치마크 데이터 다운로드
 
@@ -124,6 +130,7 @@ rm -f output/종합거래내역.csv
 source .venv/bin/activate
 python .claude/skills/parse-namu/scripts/parse_namu.py resource/NH나무증권/
 python .claude/skills/parse-meritz/scripts/parse_meritz.py resource/메리츠증권/
+python .claude/skills/parse-toss/scripts/parse_toss.py resource/토스증권/
 node tests/test_portfolio.js
 python scripts/upload_to_sheets.py
 ```
@@ -153,6 +160,7 @@ node tests/test_portfolio.js
 | 단위 (1-8) | 인라인 픽스처 | 계산 로직 회귀 방지 |
 | 고정 데이터 (9-14) | `tests/fixtures/종합거래내역.csv` | 실제 데이터 기반 검증 |
 | 라이브 CSV (15-19) | `output/종합거래내역.csv` | CSV 무결성 + 계좌별 보유수량 스냅샷 |
+| 현금잔고 단위 (20-25) | 인라인 픽스처 | 현금잔고 SET/합산/weight 계산 로직 회귀 방지 |
 
 ## 지원 계좌
 
@@ -163,6 +171,7 @@ node tests/test_portfolio.js
 | NH나무증권 | 202-07-****** | parse-namu |
 | NH나무증권 | 209-02-****** | parse-namu |
 | 메리츠증권 | 3066-6156-** | parse-meritz |
+| 토스증권 | 159-01-****** | parse-toss |
 
 ## 지원 종목 (해외)
 
