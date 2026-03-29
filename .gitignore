@@ -2,6 +2,7 @@
 resource
 output
 credentials
+tests/fixtures/app_status.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
