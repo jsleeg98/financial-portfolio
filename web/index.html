@@ -936,19 +936,47 @@ function savePriceHistory() {
   try { localStorage.setItem('priceHistory', JSON.stringify(priceHistory)); } catch(e) { console.warn('과거 시세 저장 실패', e); }
 }
 
+// KRW 종목명 → Yahoo Finance 심볼 캐시 (e.g. "KODEX미국S&P500" → "379800.KS")
+let symbolCache = {};
+function saveSymbolCache() {
+  try { localStorage.setItem('yfSymbolCache', JSON.stringify(symbolCache)); } catch(e) {}
+}
+
+// Yahoo Finance 검색으로 KRW 종목의 .KS/.KQ 심볼 조회 (캐시 우선)
+async function resolveKRWSymbol(ticker) {
+  if (symbolCache[ticker]) return symbolCache[ticker];
+  try {
+    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&quotesCount=6&newsCount=0&listsCount=0`;
+    const data = await fetchWithProxy(url);
+    const quotes = data.quotes || [];
+    const kr = quotes.find(q => q.symbol?.endsWith('.KS') || q.symbol?.endsWith('.KQ'));
+    if (kr) {
+      symbolCache[ticker] = kr.symbol;
+      saveSymbolCache();
+      return kr.symbol;
+    }
+  } catch(e) {
+    console.warn(`${ticker} 심볼 검색 실패:`, e);
+  }
+  return null; // 실패 시 미캐시 → 다음 시세 조회 때 재시도
+}
+
 // 아직 캐시에 없는 (ticker, month) 쌍 계산
+// 반환: { ticker: { months: string[], currency: 'USD'|'KRW' } }
 function computeNeededHistoricalPrices() {
   const todayYM = new Date().toISOString().slice(0, 7);
   const p = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX, priceHistory);
   const needed = {};
-  p.monthlyHoldings.forEach(({ month, usdTickers }) => {
+  const add = (ticker, month, currency) => {
+    if (priceHistory[ticker]?.[month] == null) {
+      if (!needed[ticker]) needed[ticker] = { months: [], currency };
+      needed[ticker].months.push(month);
+    }
+  };
+  p.monthlyHoldings.forEach(({ month, usdTickers, krwTickers }) => {
     if (month >= todayYM) return;
-    usdTickers.forEach(ticker => {
-      if (priceHistory[ticker]?.[month] == null) {
-        if (!needed[ticker]) needed[ticker] = [];
-        needed[ticker].push(month);
-      }
-    });
+    usdTickers.forEach(t => add(t, month, 'USD'));
+    krwTickers.forEach(t => add(t, month, 'KRW'));
   });
   return needed;
 }
@@ -959,11 +987,18 @@ async function fetchHistoricalPrices(neededMap) {
   if (!tickers.length) return;
   let fetched = 0;
   for (const ticker of tickers) {
-    const months = neededMap[ticker].sort();
-    const period1 = Math.floor(new Date(`${months[0]}-01T00:00:00Z`).getTime() / 1000);
+    const { months, currency } = neededMap[ticker];
+    // KRW 종목은 먼저 심볼 검색
+    let yfSymbol = ticker;
+    if (currency === 'KRW') {
+      yfSymbol = await resolveKRWSymbol(ticker);
+      if (!yfSymbol) continue;
+    }
+    const sortedMonths = months.sort();
+    const period1 = Math.floor(new Date(`${sortedMonths[0]}-01T00:00:00Z`).getTime() / 1000);
     const period2 = Math.floor(Date.now() / 1000);
     try {
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1mo&period1=${period1}&period2=${period2}`;
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yfSymbol}?interval=1mo&period1=${period1}&period2=${period2}`;
       const data = await fetchWithProxy(url);
       const result = data.chart?.result?.[0];
       if (!result) continue;
@@ -978,7 +1013,7 @@ async function fetchHistoricalPrices(neededMap) {
       });
       fetched++;
     } catch(e) {
-      console.warn(`${ticker} 과거 시세 실패:`, e);
+      console.warn(`${ticker} (${yfSymbol}) 과거 시세 실패:`, e);
     }
   }
   if (fetched > 0) savePriceHistory();
@@ -1076,6 +1111,7 @@ async function fetchPricesFromAPI() {
 document.addEventListener('DOMContentLoaded', () => {
   // 과거 시세 캐시 로드 (localStorage)
   try { priceHistory = JSON.parse(localStorage.getItem('priceHistory') || '{}'); } catch { priceHistory = {}; }
+  try { symbolCache = JSON.parse(localStorage.getItem('yfSymbolCache') || '{}'); } catch { symbolCache = {}; }
 
   // 탭 전환
   document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -1148,7 +1184,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // 과거 월별 시세 조회 (캐시에 없는 종목/월만)
       if (rawTransactions.length > 0) {
         const neededMap = computeNeededHistoricalPrices();
-        const needCount = Object.values(neededMap).reduce((s, v) => s + v.length, 0);
+        const needCount = Object.values(neededMap).reduce((s, v) => s + v.months.length, 0);
         if (needCount > 0) {
           btnEl.textContent = `과거 시세 조회 중... (${Object.keys(neededMap).length}종목)`;
           await fetchHistoricalPrices(neededMap);

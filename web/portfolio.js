@@ -253,12 +253,15 @@ function computePortfolio(txns, prices, fx, dailyFX = {}, historicalPrices = {})
     prevVal = valKRW;
   });
 
-  // 과거 시세 조회 필요 목록 계산용 (USD 종목만)
+  // 과거 시세 조회 필요 목록 계산용 (USD + KRW 분리)
   const monthlyHoldings = months.map(m => ({
     month: m,
     usdTickers: Object.entries(monthMap[m].holdings)
       .filter(([, h]) => h.qty > 0 && h.currency === 'USD')
-      .map(([t]) => t)
+      .map(([t]) => t),
+    krwTickers: Object.entries(monthMap[m].holdings)
+      .filter(([, h]) => h.qty > 0 && h.currency === 'KRW')
+      .map(([t]) => t),
   }));
 
   // 월별 실현손익 + 누적
