@@ -447,12 +447,32 @@ function renderHoldingsPie(holdings) {
   ];
   if (charts['holdings-pie']) charts['holdings-pie'].destroy();
   if (!holdings.length) return;
+
+  function fmtVal(v) {
+    if (v >= 100000000) return (v / 100000000).toFixed(1) + '억';
+    if (v >= 10000) return Math.round(v / 10000) + '만';
+    return Math.round(v) + '원';
+  }
+
+  const isMobile = window.innerWidth < 600;
+  const n = holdings.length;
+
+  // 차트 높이를 범례 항목 수에 맞게 동적 조정
+  const wrap = document.querySelector('.chart-wrap-pie');
+  if (isMobile) {
+    const legendRows = Math.ceil(n / 2);
+    wrap.style.height = Math.max(360, 220 + legendRows * 30) + 'px';
+  } else {
+    wrap.style.height = Math.max(340, n * 28 + 60) + 'px';
+  }
+
   charts['holdings-pie'] = new Chart(ctx, {
     type: 'doughnut',
     data: {
       labels: holdings.map(h => h.ticker),
       datasets: [{
         data: holdings.map(h => parseFloat(h.weight.toFixed(2))),
+        valuations: holdings.map(h => h.valueKRW),
         backgroundColor: COLORS.slice(0, holdings.length),
         borderColor: '#1c2128',
         borderWidth: 2,
@@ -463,25 +483,35 @@ function renderHoldingsPie(holdings) {
       maintainAspectRatio: false,
       plugins: {
         legend: {
-          position: window.innerWidth < 600 ? 'bottom' : 'right',
+          position: isMobile ? 'bottom' : 'right',
           labels: {
             color: '#ffffff',
-            font: { size: window.innerWidth < 600 ? 12 : 13, weight: '500' },
-            padding: window.innerWidth < 600 ? 10 : 16,
-            boxWidth: 14,
-            boxHeight: 14,
-            generateLabels: (chart) => chart.data.labels.map((label, i) => ({
-              text: `${label}  ${chart.data.datasets[0].data[i].toFixed(1)}%`,
-              fillStyle: COLORS[i],
-              strokeStyle: 'transparent',
-              lineWidth: 0,
-              fontColor: '#ffffff',
-              hidden: false,
-              index: i,
-            }))
+            font: { size: isMobile ? 11 : 12, weight: '500' },
+            padding: isMobile ? 8 : 12,
+            boxWidth: 12,
+            boxHeight: 12,
+            generateLabels: (chart) => {
+              const vals = chart.data.datasets[0].valuations;
+              return chart.data.labels.map((label, i) => ({
+                text: `${label}  ${fmtVal(vals[i])}  ${chart.data.datasets[0].data[i].toFixed(1)}%`,
+                fillStyle: COLORS[i],
+                strokeStyle: 'transparent',
+                lineWidth: 0,
+                fontColor: '#ffffff',
+                hidden: false,
+                index: i,
+              }));
+            }
           }
         },
-        tooltip: { callbacks: { label: c => ` ${c.label}: ${c.parsed.toFixed(1)}%` } },
+        tooltip: {
+          callbacks: {
+            label: c => {
+              const val = c.chart.data.datasets[0].valuations[c.dataIndex];
+              return ` ${c.label}: ${fmtVal(val)} (${c.parsed.toFixed(1)}%)`;
+            }
+          }
+        },
         datalabels: {
           display: (ctx) => ctx.dataset.data[ctx.dataIndex] >= 5,
           color: '#ffffff',
