@@ -357,9 +357,9 @@ def parse_jonghap_file(filepath: str) -> list[dict]:
         # 잔고금액(sub_tds[2]) 추적: 국내 KRW 거래에서 잔고 업데이트
         bal_amt_raw = sub_tds[2].get_text(strip=True) if len(sub_tds) > 2 else ""
         bal_amt = parse_number(bal_amt_raw)
+        last_date = trade_date_raw.replace(".", "-")  # 항상 마지막 행 날짜 추적 (잔고 0 포함)
         if bal_amt > 0:
             last_krw_cash = bal_amt
-            last_date = trade_date_raw.replace(".", "-")
 
         trade_date = trade_date_raw.replace(".", "-")
 
@@ -484,8 +484,8 @@ def parse_jonghap_file(filepath: str) -> list[dict]:
             "비고": "",
         })
 
-    # 현금잔고 행 추가 (KRW 잔고가 있는 경우)
-    if last_krw_cash > 0:
+    # 현금잔고 행 추가 (처리한 행이 있으면 잔고 0도 포함해 최신 스냅샷 기록)
+    if last_date:
         domestic_records.append({
             "거래일자": last_date,
             "유형": "현금잔고",
@@ -502,7 +502,7 @@ def parse_jonghap_file(filepath: str) -> list[dict]:
         })
 
     records = domestic_records + foreign_records
-    print(f"  → {len(domestic_records) - (1 if last_krw_cash > 0 else 0)}건 (국내) + {len(foreign_records)}건 (해외) 추출")
+    print(f"  → {len(domestic_records) - (1 if last_date else 0)}건 (국내) + {len(foreign_records)}건 (해외) 추출")
     return records
 
 
