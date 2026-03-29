@@ -329,6 +329,10 @@ def parse_jonghap_file(filepath: str) -> list[dict]:
     domestic_records = []
     foreign_records = []
 
+    # 현금잔고 추적: sub_tds[2]=잔고금액(KRW, 국내 거래에서 업데이트)
+    last_krw_cash = 0.0
+    last_date = ""
+
     i = 0
     while i < len(rows) - 1:
         main_tds = rows[i].find_all("td")
@@ -349,6 +353,13 @@ def parse_jonghap_file(filepath: str) -> list[dict]:
 
         unit_price_raw = sub_tds[0].get_text(strip=True)
         settlement_raw = sub_tds[1].get_text(strip=True)
+
+        # 잔고금액(sub_tds[2]) 추적: 국내 KRW 거래에서 잔고 업데이트
+        bal_amt_raw = sub_tds[2].get_text(strip=True) if len(sub_tds) > 2 else ""
+        bal_amt = parse_number(bal_amt_raw)
+        last_date = trade_date_raw.replace(".", "-")  # 항상 마지막 행 날짜 추적 (잔고 0 포함)
+        if bal_amt > 0:
+            last_krw_cash = bal_amt
 
         trade_date = trade_date_raw.replace(".", "-")
 
@@ -473,8 +484,25 @@ def parse_jonghap_file(filepath: str) -> list[dict]:
             "비고": "",
         })
 
+    # 현금잔고 행 추가 (처리한 행이 있으면 잔고 0도 포함해 최신 스냅샷 기록)
+    if last_date:
+        domestic_records.append({
+            "거래일자": last_date,
+            "유형": "현금잔고",
+            "종목코드": "",
+            "수량": 0.0,
+            "단가": 0.0,
+            "금액": 0.0,
+            "환율": 0.0,
+            "금액KRW": last_krw_cash,
+            "통화": "KRW",
+            "증권사": broker,
+            "계좌번호": account,
+            "비고": "현금잔고",
+        })
+
     records = domestic_records + foreign_records
-    print(f"  → {len(domestic_records)}건 (국내) + {len(foreign_records)}건 (해외) 추출")
+    print(f"  → {len(domestic_records) - (1 if last_date else 0)}건 (국내) + {len(foreign_records)}건 (해외) 추출")
     return records
 
 
@@ -675,6 +703,26 @@ def main():
     if output_path.exists():
         print(f"\n기존 파일 병합: {output_path}")
         existing = pd.read_csv(output_path, dtype=str).fillna("")
+
+        # 이번 파싱 결과에 현금잔고 행이 있으면 기존 CSV의 해당 계좌 현금잔고 행 제거
+        # (재실행 시 잔고 변경을 올바르게 반영)
+        new_cash_keys = set()
+        for r in all_records:
+            if r.get("유형") == "현금잔고":
+                new_cash_keys.add((r["증권사"], r["계좌번호"], r["통화"]))
+        if new_cash_keys:
+            mask_to_remove = (
+                (existing["유형"] == "현금잔고") &
+                existing.apply(
+                    lambda row: (row["증권사"], row["계좌번호"], row["통화"]) in new_cash_keys,
+                    axis=1
+                )
+            )
+            removed_cash = mask_to_remove.sum()
+            if removed_cash:
+                print(f"  기존 현금잔고 행 교체: {removed_cash}건 제거")
+            existing = existing[~mask_to_remove]
+
         df = pd.concat([existing, df], ignore_index=True)
 
     # 숫자 컬럼 타입 보정

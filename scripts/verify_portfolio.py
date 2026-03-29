@@ -4,6 +4,14 @@
 tests/fixtures/app_status.txt 의 증권앱 현황과
 output/종합거래내역.csv 의 계산값을 비교하여 오차를 검증한다.
 
+비교 기준:
+  앱 총자산 = 평가금액 + 예수금(원화) + 예수금(달러) × FX
+  계산 총자산 = 주식평가 + 계산현금(KRW) + 계산현금(USD) × FX
+
+현금 한계:
+  - NH나무증권 종합파일: 외화 잔고금액 컬럼 없음 → USD 현금 미추적
+  - 메리츠/토스: 파일 종료일 이후 배당·이자는 반영 안 됨
+
 사용법:
     python scripts/verify_portfolio.py [--fx 1506]
 
@@ -14,6 +22,7 @@ FX 자동 역산:
 
 import re
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -22,9 +31,11 @@ import pandas as pd
 APP_STATUS_PATH = Path("tests/fixtures/app_status.txt")
 CSV_PATH = Path("output/종합거래내역.csv")
 
-# 허용 오차 기준 (CLAUDE.md 기준)
-COST_TOLERANCE_PCT = 1.5   # 매입금액: 역사적 환율차 등으로 다소 넓게 허용
-VALUE_TOLERANCE_PCT = 1.5  # 평가금액
+# 허용 오차 기준
+TOTAL_TOLERANCE_PCT = 1.5   # 총자산(주식+현금)
+COST_TOLERANCE_PCT  = 1.5   # 매입금액 (취득환율 차이로 별도 허용)
+CASH_TOLERANCE_KRW  = 10_000  # 현금 허용 오차 (원화 절대값)
+CASH_TOLERANCE_USD  = 5.0     # 현금 허용 오차 (달러 절대값)
 
 
 def parse_number(s: str) -> float:
@@ -34,7 +45,15 @@ def parse_number(s: str) -> float:
 
 
 def parse_app_status(path: Path) -> tuple[dict, dict, str]:
-    """app_status.txt 파싱 → (계좌별 앱수치, 종목별 현재가, 기준일)"""
+    """app_status.txt 파싱 → (계좌별 앱수치, 종목별 현재가, 기준일)
+
+    계좌별 앱수치: {
+        '평가금액': float,
+        '매입금액': float,
+        '예수금(원화)': float,  # 새 필드
+        '예수금(달러)': float,  # 새 필드
+    }
+    """
     accounts = {}
     prices = {}
     date_str = ""
@@ -82,8 +101,7 @@ def compute_holdings(acct_df: pd.DataFrame) -> dict:
             holdings[ticker] = {"qty": 0.0, "cost": 0.0, "currency": currency}
         h = holdings[ticker]
         if typ == "매수":
-            hist_fx = tx["환율"]   # NH나무증권: 실제 환율 사용
-            # 메리츠증권 환율=0은 나중에 fx 결정 후 적용 → _단가_usd 저장
+            hist_fx = tx["환율"]
             h["qty"] += qty
             h["_pending_cost_usd"] = h.get("_pending_cost_usd", 0) + (tx["단가"] * qty if currency == "USD" and hist_fx == 0 else 0)
             h["cost"] += tx["단가"] * (hist_fx if hist_fx > 0 else 0) * qty if currency == "USD" else tx["단가"] * qty
@@ -104,6 +122,30 @@ def compute_holdings(acct_df: pd.DataFrame) -> dict:
     return {t: h for t, h in holdings.items() if h["qty"] > 0.001}
 
 
+def compute_cash_snapshot(acct_df: pd.DataFrame, verify_date: str, fx: float) -> tuple[float, float]:
+    """CSV의 현금잔고 행에서 USD·KRW 현금을 계산한다 (90일 이내 스냅샷만).
+
+    Returns: (cash_usd, cash_krw)
+    """
+    cash_rows = acct_df[acct_df["유형"] == "현금잔고"].sort_values("거래일자")
+    if cash_rows.empty:
+        return 0.0, 0.0
+
+    if verify_date:
+        cutoff = (datetime.strptime(verify_date, "%Y-%m-%d") - timedelta(days=90)).strftime("%Y-%m-%d")
+        cash_rows = cash_rows[cash_rows["거래일자"] >= cutoff]
+
+    cash_usd = cash_krw = 0.0
+    for currency, grp in cash_rows.groupby("통화"):
+        last = grp.iloc[-1]
+        if currency == "USD":
+            usd = float(last["금액"]) if float(last["금액"]) > 0 else float(last["금액KRW"]) / fx
+            cash_usd += usd
+        elif currency == "KRW":
+            cash_krw += float(last["금액KRW"])
+    return cash_usd, cash_krw
+
+
 def estimate_fx(df: pd.DataFrame, prices: dict, target_acct: str, target_value: float) -> float:
     """순수 USD 계좌의 평가금액으로 USD/KRW 환율을 역산한다."""
     acct_df = df[df["계좌번호"] == target_acct]
@@ -118,25 +160,20 @@ def estimate_fx(df: pd.DataFrame, prices: dict, target_acct: str, target_value: 
     return target_value / usd_val
 
 
-def compute_portfolio(acct_df: pd.DataFrame, prices: dict, fx: float) -> tuple[float, float, list]:
-    """보유현황 → (총 매입금액, 총 평가금액, 가격없는 종목 목록)"""
+def compute_stock_value(acct_df: pd.DataFrame, prices: dict, fx: float) -> tuple[float, float, list]:
+    """보유 주식 → (총 매입금액, 주식 평가금액, 가격없는 종목 목록)"""
     holdings = compute_holdings(acct_df)
     total_cost = total_val = 0.0
     unknown = []
-
     for ticker, h in holdings.items():
-        # 메리츠증권 환율=0 포지션의 cost 보정 (현재 fx 사용)
         pending_usd = h.get("_pending_cost_usd", 0)
         cost = h["cost"] + pending_usd * fx
         total_cost += cost
-
         if ticker in prices:
-            p = prices[ticker]
-            val = p * h["qty"] * (fx if h["currency"] == "USD" else 1)
+            val = prices[ticker] * h["qty"] * (fx if h["currency"] == "USD" else 1)
             total_val += val
         else:
             unknown.append((ticker, round(h["qty"])))
-
     return total_cost, total_val, unknown
 
 
@@ -161,7 +198,7 @@ def main():
     print(f"기준일: {date_str}")
     print(f"현재가: {', '.join(f'{k}={v}' for k, v in prices.items())}")
 
-    # FX 자동 역산: 202-07-292788 (IREN+RKLB 순수 USD 계좌)
+    # FX 자동 역산: 202-07-292788 (IREN+RKLB 순수 USD 계좌, 예수금=0)
     if fx_override:
         fx = fx_override
         print(f"환율(수동): {fx:.1f} KRW/USD")
@@ -174,41 +211,109 @@ def main():
             fx = 1450.0
             print(f"환율(기본값): {fx:.1f} KRW/USD")
 
+    # ── 총자산 비교 ─────────────────────────────────────────────────
+    # 앱 총자산 = 평가금액 + 예수금(원화) + 예수금(달러) × FX
+    # 계산 총자산 = 주식평가 + 계산현금(KRW) + 계산현금(USD) × FX
     print()
-    print(f"{'계좌':<22} {'매입(계산)':>12} {'매입(앱)':>12} {'매입오차':>8}  {'평가(계산)':>12} {'평가(앱)':>12} {'평가오차':>8}  상태")
-    print("-" * 108)
+    print(f"{'계좌':<22} {'주식(계산)':>12} {'주식(앱)':>12} {'주식오차':>8}  "
+          f"{'총자산(계산)':>12} {'총자산(앱)':>12} {'총자산오차':>9}  상태")
+    print("-" * 118)
 
     all_ok = True
+    results = {}
+
     for acct, app in app_accounts.items():
         acct_df = df[df["계좌번호"] == acct]
         if acct_df.empty:
             print(f"{acct:<22} [CSV에 데이터 없음]")
             continue
-        cost, val, unknown = compute_portfolio(acct_df, prices, fx)
-        app_cost = app.get("매입금액", 0)
-        app_val  = app.get("평가금액", 0)
-        ce = (cost - app_cost) / app_cost * 100 if app_cost else 0
-        ve = (val  - app_val)  / app_val  * 100 if app_val  else 0
-        ok_c = abs(ce) <= COST_TOLERANCE_PCT
-        ok_v = abs(ve) <= VALUE_TOLERANCE_PCT
-        # 전체 상태는 평가금액 기준 (매입금액 오차는 취득환율 차이로 허용)
-        status = "✅" if ok_v else "⚠️"
-        if not ok_v:
+
+        cost, stock_val, unknown = compute_stock_value(acct_df, prices, fx)
+        cash_usd, cash_krw = compute_cash_snapshot(acct_df, date_str, fx)
+
+        our_total = stock_val + cash_usd * fx + cash_krw
+
+        app_eval   = app.get("평가금액", 0)
+        app_dep_krw = app.get("예수금(원화)", 0)
+        app_dep_usd = app.get("예수금(달러)", 0)
+        app_total  = app_eval + app_dep_krw + app_dep_usd * fx
+        app_cost   = app.get("매입금액", 0)
+
+        # 주식 vs 앱 평가금액 비교 (NH나무/메리츠: 주식only; 토스: USD 포함)
+        se = (stock_val - app_eval) / app_eval * 100 if app_eval else 0
+        te = (our_total - app_total) / app_total * 100 if app_total else 0
+        ok_t = abs(te) <= TOTAL_TOLERANCE_PCT
+        if not ok_t:
             all_ok = False
-        note_c = "✅" if ok_c else "⚠️"
-        note_v = "✅" if ok_v else "⚠️"
-        print(f"{acct:<22} {cost:>12,.0f} {app_cost:>12,.0f} {note_c}{ce:>+7.2f}%  {val:>12,.0f} {app_val:>12,.0f} {note_v}{ve:>+7.2f}%  {status}", end="")
+
+        note_s = "✅" if abs(se) <= TOTAL_TOLERANCE_PCT else "⚠️"
+        note_t = "✅" if ok_t else "⚠️"
+        status = "✅" if ok_t else "⚠️"
+
+        print(f"{acct:<22} {stock_val:>12,.0f} {app_eval:>12,.0f} {note_s}{se:>+7.2f}%  "
+              f"{our_total:>12,.0f} {app_total:>12,.0f} {note_t}{te:>+8.2f}%  {status}", end="")
         if unknown:
-            print(f"  (가격없음: {[t for t,_ in unknown]})", end="")
+            print(f"  (가격없음: {[t for t, _ in unknown]})", end="")
         print()
 
+        results[acct] = {
+            "cash_usd": cash_usd, "cash_krw": cash_krw,
+            "app_dep_usd": app_dep_usd, "app_dep_krw": app_dep_krw,
+        }
+
     print()
-    print(f"※ 매입금액 오차는 취득환율(TTB vs 현물) 및 평균단가 계산 방식 차이로 발생 — 허용 범위로 간주")
+    print("※ 주식오차: NH나무/메리츠는 주식평가 vs 평가금액, 토스는 달러포지션 포함 비교")
+    print("※ 총자산오차: (주식+계산현금) vs (평가금액+예수금) — 현금 스냅샷 정확도에 따라 달라짐")
     print()
+
+    # ── 예수금 대조표 ────────────────────────────────────────────────
+    print(f"{'계좌':<22} {'원화현금(계산)':>14} {'원화현금(앱)':>14} {'상태':>4}  "
+          f"{'달러현금(계산)':>14} {'달러현금(앱)':>14} {'상태':>4}  비고")
+    print("-" * 104)
+
+    cash_all_ok = True
+    for acct, r in results.items():
+        dep_krw = r["app_dep_krw"]
+        dep_usd = r["app_dep_usd"]
+        our_krw = r["cash_krw"]
+        our_usd = r["cash_usd"]
+
+        ok_krw = abs(our_krw - dep_krw) <= CASH_TOLERANCE_KRW
+        ok_usd = abs(our_usd - dep_usd) <= CASH_TOLERANCE_USD
+        note_krw = "✅" if ok_krw else "⚠️"
+        note_usd = "✅" if ok_usd else "⚠️"
+        if not ok_usd or not ok_krw:
+            cash_all_ok = False
+
+        # 비고: 왜 다를 수 있는지
+        note_parts = []
+        if not ok_usd:
+            if dep_usd == 0 and our_usd > CASH_TOLERANCE_USD:
+                note_parts.append("달러포지션 평가금액 포함됨")
+            elif dep_usd > 0 and our_usd == 0:
+                note_parts.append("USD 잔고 미추적 (파일 구조 한계)")
+            elif dep_usd > our_usd:
+                note_parts.append(f"파일 종료일 이후 배당·이자 +${dep_usd - our_usd:.2f} 미반영")
+        if not ok_krw:
+            if dep_krw > 0 and our_krw == 0:
+                note_parts.append(f"원화 섹션 미파싱 (+₩{dep_krw:,.0f})")
+
+        print(f"{acct:<22} {our_krw:>14,.0f} {dep_krw:>14,.0f} {note_krw:>4}  "
+              f"{our_usd:>14.2f}$ {dep_usd:>13.2f}$ {note_usd:>4}  "
+              f"{'  '.join(note_parts)}")
+
+    print()
+    print(f"※ 원화현금 허용 오차 ±₩{CASH_TOLERANCE_KRW:,} / 달러현금 허용 오차 ±${CASH_TOLERANCE_USD}")
+    print()
+
+    # ── 최종 결론 ─────────────────────────────────────────────────
     if all_ok:
-        print("✅ 모든 계좌 평가금액 오차 허용 범위 내 — 정상")
+        print("✅ 총자산 오차 모두 허용 범위 내 — 정상")
     else:
-        print("⚠️  일부 계좌 평가금액 오차 초과 — 현재가·환율 확인 필요")
+        print("⚠️  총자산 오차 초과 계좌 있음 — 현재가·환율·파일 범위 확인 필요")
+
+    if not cash_all_ok:
+        print("ℹ️  현금 불일치: NH나무 종합파일에 외화 잔고 없음, 또는 파일 종료일 이후 배당·이자 미반영")
 
 
 if __name__ == "__main__":

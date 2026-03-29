@@ -331,3 +331,112 @@ test('라이브 CSV [209-02]: RISE 미국나스닥100 qty = 280', (t) => {
   const sol = result.currentHoldings.find(h => h.ticker === 'SOL 미국배당다우존스');
   assert.equal(sol, undefined, '[209-02] SOL 미국배당다우존스 전량 매도 후 잔고 없어야 함');
 });
+
+// [6265-5774] 키움증권 계좌 스냅샷
+// 새 거래 추가 시 아래 기대값을 함께 갱신하라.
+test('라이브 CSV [6265-5774]: 키움증권 보유수량 스냅샷', (t) => {
+  if (!requireLiveData(t)) return;
+  const txnsKiwoom = liveTxns.filter(tx => tx.계좌번호 === '6265-5774');
+  if (txnsKiwoom.length === 0) { t.skip('6265-5774 계좌 데이터 없음'); return; }
+  const result = computePortfolio(txnsKiwoom, {}, 1450);
+
+  result.currentHoldings.forEach(h => {
+    assert.ok(h.qty >= 0, `[6265-5774] ${h.ticker} qty 음수: ${h.qty}`);
+  });
+
+  const tiger = result.currentHoldings.find(h => h.ticker === 'TIGER미국S&P500');
+  assert.ok(tiger, '[6265-5774] TIGER미국S&P500 보유 종목 존재');
+  assert.equal(tiger.qty, 213, `[6265-5774] TIGER미국S&P500 qty: 예상 213, 실제 ${tiger.qty}`);
+
+  const kodexNas = result.currentHoldings.find(h => h.ticker === 'KODEX미국나스닥100');
+  assert.ok(kodexNas, '[6265-5774] KODEX미국나스닥100 보유 종목 존재');
+  assert.equal(kodexNas.qty, 729, `[6265-5774] KODEX미국나스닥100 qty: 예상 729, 실제 ${kodexNas.qty}`);
+});
+
+// ── 현금잔고 단위 테스트 ─────────────────────────────────────────
+
+test('현금잔고 USD: cashUSD가 SET됨', () => {
+  const txns = [
+    tx('2024-01-10', '매수', 'AAPL', 1, 100, { 금액: 100, 환율: 1300, 금액KRW: 130000, 통화: 'USD' }),
+    { 거래일자: '2024-01-10', 유형: '현금잔고', 종목코드: '', 수량: 0, 단가: 0,
+      금액: 500, 환율: 1300, 금액KRW: 650000, 통화: 'USD', 증권사: 'TEST', 계좌번호: '000', 비고: '현금잔고' },
+  ];
+  const result = computePortfolio(txns, {}, 1300);
+  const cash = result.currentHoldings.find(h => h.ticker === '현금(USD)');
+  assert.ok(cash, '현금(USD) 행 존재');
+  assert.ok(Math.abs(cash.qty - 500) < 0.01, `현금(USD) qty: 예상 500, 실제 ${cash.qty}`);
+  assert.ok(cash.isCash, 'isCash 플래그가 true');
+});
+
+test('현금잔고 KRW: cashKRW가 SET됨', () => {
+  const txns = [
+    tx('2024-01-10', '매수', 'RISE 미국나스닥100', 10, 1000, { 금액: 10000, 환율: 0, 금액KRW: 10000, 통화: 'KRW' }),
+    { 거래일자: '2024-01-10', 유형: '현금잔고', 종목코드: '', 수량: 0, 단가: 0,
+      금액: 0, 환율: 0, 금액KRW: 300000, 통화: 'KRW', 증권사: 'TEST', 계좌번호: '001', 비고: '현금잔고' },
+  ];
+  const result = computePortfolio(txns, {}, 1300);
+  const cash = result.currentHoldings.find(h => h.ticker === '현금(KRW)');
+  assert.ok(cash, '현금(KRW) 행 존재');
+  assert.ok(Math.abs(cash.qty - 300000) < 1, `현금(KRW) qty: 예상 300000, 실제 ${cash.qty}`);
+  assert.ok(cash.isCash, 'isCash 플래그가 true');
+});
+
+test('현금잔고 USD: 다른 계좌 두 개 합산', () => {
+  const txns = [
+    { 거래일자: '2024-01-10', 유형: '현금잔고', 종목코드: '', 수량: 0, 단가: 0,
+      금액: 1500, 환율: 1300, 금액KRW: 1950000, 통화: 'USD', 증권사: 'BROKER_A', 계좌번호: 'ACC-1', 비고: '현금잔고' },
+    { 거래일자: '2024-01-10', 유형: '현금잔고', 종목코드: '', 수량: 0, 단가: 0,
+      금액: 200, 환율: 1300, 금액KRW: 260000, 통화: 'USD', 증권사: 'BROKER_B', 계좌번호: 'ACC-2', 비고: '현금잔고' },
+  ];
+  const result = computePortfolio(txns, {}, 1300);
+  const cash = result.currentHoldings.find(h => h.ticker === '현금(USD)');
+  assert.ok(cash, '현금(USD) 행 존재');
+  assert.ok(Math.abs(cash.qty - 1700) < 0.01, `현금(USD) qty: 예상 1700, 실제 ${cash.qty}`);
+});
+
+test('현금잔고: isCash=true 행이 currentHoldings에 포함됨', () => {
+  const txns = [
+    tx('2024-01-10', '매수', 'AAPL', 5, 100, { 금액: 500, 환율: 1300, 금액KRW: 650000, 통화: 'USD' }),
+    { 거래일자: '2024-01-10', 유형: '현금잔고', 종목코드: '', 수량: 0, 단가: 0,
+      금액: 100, 환율: 1300, 금액KRW: 130000, 통화: 'USD', 증권사: 'TEST', 계좌번호: '000', 비고: '현금잔고' },
+  ];
+  const result = computePortfolio(txns, {}, 1300);
+  const cashRows = result.currentHoldings.filter(h => h.isCash);
+  assert.equal(cashRows.length, 1, '현금 행 1개');
+  assert.equal(cashRows[0].ticker, '현금(USD)', '티커가 현금(USD)');
+  assert.equal(cashRows[0].returnPct, 0, 'returnPct = 0');
+});
+
+test('현금잔고: weight가 총자산(주식+현금) 기준으로 계산됨', () => {
+  // AAPL 5주 @100 USD, fx=1000 → 주식 KRW = 5*100*1000 = 500,000
+  // 현금 USD 100 → KRW = 100*1000 = 100,000
+  // 총자산 = 600,000 → 현금 비중 = 100,000/600,000 = 16.67%
+  const txns = [
+    tx('2024-01-10', '매수', 'AAPL', 5, 100, { 금액: 500, 환율: 1000, 금액KRW: 500000, 통화: 'USD' }),
+    { 거래일자: '2024-01-10', 유형: '현금잔고', 종목코드: '', 수량: 0, 단가: 0,
+      금액: 100, 환율: 1000, 금액KRW: 100000, 통화: 'USD', 증권사: 'TEST', 계좌번호: '000', 비고: '현금잔고' },
+  ];
+  const result = computePortfolio(txns, { AAPL: 100 }, 1000);
+  const cash = result.currentHoldings.find(h => h.ticker === '현금(USD)');
+  const aapl = result.currentHoldings.find(h => h.ticker === 'AAPL');
+  assert.ok(cash, '현금(USD) 존재');
+  assert.ok(aapl, 'AAPL 존재');
+  const totalWeight = result.currentHoldings.reduce((s, h) => s + h.weight, 0);
+  assert.ok(Math.abs(totalWeight - 100) < 0.1, `전체 비중 합계 ≈ 100%, 실제 ${totalWeight.toFixed(2)}%`);
+  assert.ok(Math.abs(cash.weight - (100000 / 600000 * 100)) < 0.1,
+    `현금 비중 ≈ 16.67%, 실제 ${cash.weight.toFixed(2)}%`);
+});
+
+test('현금잔고 SET 방식: 나중 스냅샷이 이전 값을 덮어씀', () => {
+  // 같은 계좌에 현금잔고가 두 번 등장 → 마지막 값이 적용되어야 함
+  const txns = [
+    { 거래일자: '2024-01-05', 유형: '현금잔고', 종목코드: '', 수량: 0, 단가: 0,
+      금액: 1000, 환율: 1300, 금액KRW: 1300000, 통화: 'USD', 증권사: 'TEST', 계좌번호: '000', 비고: '현금잔고' },
+    { 거래일자: '2024-01-10', 유형: '현금잔고', 종목코드: '', 수량: 0, 단가: 0,
+      금액: 500, 환율: 1300, 금액KRW: 650000, 통화: 'USD', 증권사: 'TEST', 계좌번호: '000', 비고: '현금잔고' },
+  ];
+  const result = computePortfolio(txns, {}, 1300);
+  const cash = result.currentHoldings.find(h => h.ticker === '현금(USD)');
+  assert.ok(cash, '현금(USD) 존재');
+  assert.ok(Math.abs(cash.qty - 500) < 0.01, `나중 스냅샷 값 500 적용, 실제 ${cash.qty}`);
+});

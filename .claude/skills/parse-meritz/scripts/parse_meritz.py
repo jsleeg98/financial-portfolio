@@ -140,12 +140,28 @@ def parse_meritz_file(filepath: str) -> list[dict]:
     records = []
     skipped = 0
 
+    # 현금잔고 추적: main_row[10]=예수금잔고(KRW), detail_row[14]=외화예수금잔고(USD)
+    last_usd_cash = 0.0
+    last_krw_cash = 0.0
+    last_date = ""
+
     # 헤더 2행 건너뛰고 2행씩 쌍으로 처리
     i = 2
     while i + 1 < ws.nrows:
         main_row = ws.row_values(i)
         detail_row = ws.row_values(i + 1)
         i += 2
+
+        # 모든 행에서 잔고 추적 (TYPE_MAP 필터 전)
+        krw_cash = parse_float(main_row[10]) if len(main_row) > 10 else 0.0
+        usd_cash = parse_float(detail_row[14]) if len(detail_row) > 14 else 0.0
+        row_date = parse_date(str(main_row[0]))
+        if krw_cash > 0:
+            last_krw_cash = krw_cash
+            last_date = row_date
+        if usd_cash > 0:
+            last_usd_cash = usd_cash
+            last_date = row_date
 
         trade_type_raw = str(detail_row[0]).strip()
         mapped_type = TYPE_MAP.get(trade_type_raw)
@@ -183,7 +199,39 @@ def parse_meritz_file(filepath: str) -> list[dict]:
             "비고": stock_name,
         })
 
-    print(f"  → {len(records)}건 추출 (제외: {skipped}건)")
+    # 현금잔고 행 추가
+    if last_usd_cash > 0:
+        records.append({
+            "거래일자": last_date,
+            "유형": "현금잔고",
+            "종목코드": "",
+            "수량": 0.0,
+            "단가": 0.0,
+            "금액": last_usd_cash,
+            "환율": 0.0,
+            "금액KRW": 0.0,
+            "통화": "USD",
+            "증권사": BROKER,
+            "계좌번호": account,
+            "비고": "현금잔고",
+        })
+    if last_krw_cash > 0:
+        records.append({
+            "거래일자": last_date,
+            "유형": "현금잔고",
+            "종목코드": "",
+            "수량": 0.0,
+            "단가": 0.0,
+            "금액": 0.0,
+            "환율": 0.0,
+            "금액KRW": last_krw_cash,
+            "통화": "KRW",
+            "증권사": BROKER,
+            "계좌번호": account,
+            "비고": "현금잔고",
+        })
+
+    print(f"  → {len([r for r in records if r['유형'] != '현금잔고'])}건 추출 (제외: {skipped}건)")
     return records
 
 
@@ -306,6 +354,26 @@ def main():
     if output_path.exists():
         print(f"\n기존 파일 병합: {output_path}")
         existing = pd.read_csv(output_path, dtype=str).fillna("")
+
+        # 이번 파싱 결과에 현금잔고 행이 있으면 기존 CSV의 해당 계좌 현금잔고 행 제거
+        # (재실행 시 잔고 변경을 올바르게 반영)
+        new_cash_keys = set()
+        for r in all_records:
+            if r.get("유형") == "현금잔고":
+                new_cash_keys.add((r["증권사"], r["계좌번호"], r["통화"]))
+        if new_cash_keys:
+            mask_to_remove = (
+                (existing["유형"] == "현금잔고") &
+                existing.apply(
+                    lambda row: (row["증권사"], row["계좌번호"], row["통화"]) in new_cash_keys,
+                    axis=1
+                )
+            )
+            removed_cash = mask_to_remove.sum()
+            if removed_cash:
+                print(f"  기존 현금잔고 행 교체: {removed_cash}건 제거")
+            existing = existing[~mask_to_remove]
+
         df = pd.concat([existing, df], ignore_index=True)
 
     # 숫자 컬럼 타입 보정

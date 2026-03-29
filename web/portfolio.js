@@ -7,7 +7,7 @@ function isForeignTicker(ticker, currency) {
 }
 
 // ── 포트폴리오 계산 엔진 ────────────────────────────────────────
-function computePortfolio(txns, prices, fx, dailyFX = {}) {
+function computePortfolio(txns, prices, fx, dailyFX = {}, historicalPrices = {}) {
   // 날짜순 정렬 후, 같은 날은 일별 그룹 처리로 정확한 순서 보장
   const dateSorted = [...txns].sort((a, b) => a.거래일자.localeCompare(b.거래일자));
   // 날짜별 그룹화
@@ -20,8 +20,10 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
   const holdings = {};
   let cashUSD = 0;
   let cashKRW = 0;
+  const cashByAccount = {}; // "broker-account" → { USD?: number, KRW?: number }
 
   const monthMap = {};
+  const monthlyRealizedMap = {}; // month → realized KRW (매도 손익 + 배당)
 
   // 거래내역 기반 마지막 단가 추적 (시세 미조회 시 fallback)
   const lastTxPrice = {};
@@ -84,8 +86,13 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
       if (!holdings[ticker]) holdings[ticker] = { qty: 0, totalCost: 0, totalCostKRW: 0, currency };
       if (holdings[ticker].qty > 0) {
         const ratio = tx.수량 / holdings[ticker].qty;
+        const costDeducted = holdings[ticker].totalCostKRW * ratio;
+        const txFX = dailyFX[tx.거래일자] || tx.환율 || fx;
+        const sellAmountKRW = currency === 'KRW' ? amount : (amountKRW > 0 ? amountKRW : amount * txFX);
+        if (!monthlyRealizedMap[month]) monthlyRealizedMap[month] = 0;
+        monthlyRealizedMap[month] += sellAmountKRW - costDeducted;
         holdings[ticker].totalCost -= holdings[ticker].totalCost * ratio;
-        holdings[ticker].totalCostKRW -= holdings[ticker].totalCostKRW * ratio;
+        holdings[ticker].totalCostKRW -= costDeducted;
         holdings[ticker].qty -= tx.수량;
         if (holdings[ticker].qty < 0.0001) holdings[ticker] = { qty: 0, totalCost: 0, totalCostKRW: 0, currency };
       }
@@ -93,11 +100,19 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
       if (currency === 'USD') cashUSD += amount;
       else cashKRW += amount;
     } else if (tx.유형 === '배당') {
+      if (!monthlyRealizedMap[month]) monthlyRealizedMap[month] = 0;
+      const txFX = dailyFX[tx.거래일자] || tx.환율 || fx;
+      monthlyRealizedMap[month] += currency === 'KRW' ? amount : (amountKRW > 0 ? amountKRW : amount * txFX);
       if (currency === 'USD') cashUSD += amount;
       else cashKRW += amount;
     } else if (tx.유형 === '입금') {
       if (currency === 'USD') cashUSD += amount;
       else cashKRW += amountKRW || amount;
+    } else if (tx.유형 === '현금잔고') {
+      const acctKey = `${tx.증권사 || ''}-${tx.계좌번호 || ''}`;
+      if (!cashByAccount[acctKey]) cashByAccount[acctKey] = {};
+      if (currency === 'USD') cashByAccount[acctKey].USD = amount;
+      else cashByAccount[acctKey].KRW = tx.금액KRW || amount;
     } else if (tx.유형 === '출고' && ticker) {
       // 액면분할 출고: 기존 주식 전량 회수 (원가 보존, 입고에서 수량 교체)
       // 원가는 유지하고 수량만 0으로 (입고에서 새 수량 설정)
@@ -129,6 +144,18 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
     };
   }
 
+  // cashByAccount 스냅샷이 있으면 accumulated cash 대신 사용
+  // USD: 스냅샷 없으면 0 처리 (NH나무증권처럼 환전→즉시매수 패턴은 매도 누적값이 실제 잔고와 무관)
+  const _snapKeys = Object.keys(cashByAccount);
+  if (_snapKeys.some(k => cashByAccount[k].USD !== undefined)) {
+    cashUSD = _snapKeys.reduce((s, k) => s + (cashByAccount[k].USD || 0), 0);
+  } else {
+    cashUSD = 0;
+  }
+  if (_snapKeys.some(k => cashByAccount[k].KRW !== undefined)) {
+    cashKRW = _snapKeys.reduce((s, k) => s + (cashByAccount[k].KRW || 0), 0);
+  }
+
   // 가격 조회: 시세 > 마지막 거래 단가 순으로 fallback
   function getPrice(ticker) {
     return prices[ticker] || (lastTxPrice[ticker] ? lastTxPrice[ticker].price : 0);
@@ -154,17 +181,31 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
 
   // 매입금액 = 보유종목 KRW 원가 합계, 평가금액 = 보유종목 시가
   const evalKRW = totalValueKRW;
-  const netAssetKRW = evalKRW + cashUSD * fx + cashKRW;
+  const cashUSDValue = cashUSD * fx;
+  const cashKRWValue = cashKRW;
+  const netAssetKRW = evalKRW + cashUSDValue + cashKRWValue;
   const profitKRW = evalKRW - totalCostKRW;
   const profitRate = totalCostKRW > 0 ? (profitKRW / totalCostKRW) * 100 : 0;
 
-  // 비중
-  const totalVal = totalValueKRW > 0 ? totalValueKRW : 1;
+  // 비중: 주식 + 현금 합산 기준
+  const totalForWeight = totalValueKRW + cashUSDValue + cashKRWValue || 1;
   currentHoldings.forEach(h => {
-    h.weight = (h.valueKRW / totalVal) * 100;
+    h.weight = (h.valueKRW / totalForWeight) * 100;
     h.returnPct = h.avgCost > 0 ? ((h.price - h.avgCost) / h.avgCost) * 100 : 0;
   });
   currentHoldings.sort((a, b) => b.weight - a.weight);
+
+  // 현금 행 추가 (USD·KRW 각각, 현재 환율 기준 KRW 환산)
+  if (cashUSD > 0.001) currentHoldings.push({
+    ticker: '현금(USD)', qty: cashUSD, avgCost: 1, price: 1,
+    valueKRW: cashUSDValue, costKRW: cashUSDValue, currency: 'USD',
+    weight: cashUSDValue / totalForWeight * 100, returnPct: 0, isCash: true,
+  });
+  if (cashKRW > 0.5) currentHoldings.push({
+    ticker: '현금(KRW)', qty: cashKRW, avgCost: 1, price: 1,
+    valueKRW: cashKRWValue, costKRW: cashKRWValue, currency: 'KRW',
+    weight: cashKRWValue / totalForWeight * 100, returnPct: 0, isCash: true,
+  });
 
   // 월별 시계열
   const months = Object.keys(monthMap).sort();
@@ -172,14 +213,36 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
   const monthlyPnL = [];
   let prevVal = null;
 
+  const todayYM = new Date().toISOString().slice(0, 7);
+  const sortedFXDates = Object.keys(dailyFX).sort();
+
+  // 해당 월의 마지막 가용 FX (benchmarkFX 기반)
+  function getMonthEndFX(month) {
+    const upperBound = `${month}-31`;
+    let mfx = fx;
+    for (const d of sortedFXDates) {
+      if (d <= upperBound) mfx = dailyFX[d];
+      else break;
+    }
+    return mfx;
+  }
+
   months.forEach(m => {
     const snap = monthMap[m];
+    const isHistorical = m < todayYM;
+    const monthFX = isHistorical ? getMonthEndFX(m) : fx;
+
     let valKRW = 0;
     Object.entries(snap.holdings).forEach(([t, h]) => {
       if (h.qty > 0) {
-        const p = getPrice(t);
+        let p;
+        if (isHistorical && historicalPrices[t]?.[m] != null) {
+          p = historicalPrices[t][m];
+        } else {
+          p = getPrice(t);
+        }
         const isUSD = h.currency === 'USD';
-        valKRW += isUSD ? h.qty * p * fx : h.qty * p;
+        valKRW += isUSD ? h.qty * p * monthFX : h.qty * p;
       }
     });
     const costKRW = snap.costKRW;
@@ -188,6 +251,26 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
     const pnl = prevVal !== null ? valKRW - prevVal - (costKRW - (monthlyTrend.length >= 2 ? monthlyTrend[monthlyTrend.length - 2].principal : 0)) : 0;
     monthlyPnL.push({ month: m, pnl });
     prevVal = valKRW;
+  });
+
+  // 과거 시세 조회 필요 목록 계산용 (USD + KRW 분리)
+  const monthlyHoldings = months.map(m => ({
+    month: m,
+    usdTickers: Object.entries(monthMap[m].holdings)
+      .filter(([, h]) => h.qty > 0 && h.currency === 'USD')
+      .map(([t]) => t),
+    krwTickers: Object.entries(monthMap[m].holdings)
+      .filter(([, h]) => h.qty > 0 && h.currency === 'KRW')
+      .map(([t]) => t),
+  }));
+
+  // 월별 실현손익 + 누적
+  const monthlyRealizedPnL = [];
+  let cumRealized = 0;
+  months.forEach(m => {
+    const realized = monthlyRealizedMap[m] || 0;
+    cumRealized += realized;
+    monthlyRealizedPnL.push({ month: m, realized: Math.round(realized), cumulative: Math.round(cumRealized) });
   });
 
   // 누적수익률 (월별)
@@ -322,7 +405,7 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
   return {
     currentHoldings, totalValueKRW: evalKRW, profitKRW, profitRate,
     investedKRW: totalCostKRW, netAssetKRW,
-    monthlyTrend, monthlyPnL, cumulativeReturn,
+    monthlyTrend, monthlyPnL, monthlyRealizedPnL, monthlyHoldings, cumulativeReturn,
     cashUSD, cashKRW, dailySnapshots, firstTxDate, twrReturn
   };
 }

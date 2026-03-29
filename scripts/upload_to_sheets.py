@@ -22,6 +22,10 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 
+# web config 생성 스크립트 (같은 scripts/ 디렉토리)
+sys.path.insert(0, str(Path(__file__).parent))
+from generate_web_config import main as generate_web_config
+
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 CREDENTIALS_PATH = Path("credentials/service_account.json")
@@ -61,6 +65,9 @@ def upload_df(ws, df: pd.DataFrame):
 
 
 def main():
+    # web/data/portfolio_config.json 갱신 (EXCLUDED_TICKERS 등 .env 설정 반영)
+    generate_web_config()
+
     env = load_env()
     spreadsheet_id = env.get("SPREADSHEET_ID") or os.environ.get("SPREADSHEET_ID")
     if not spreadsheet_id:

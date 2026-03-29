@@ -96,6 +96,33 @@ def _parse_dollar_amounts(text: str) -> list[float]:
     return [parse_float(v) for v in re.findall(r'\(\$ ([\d,\.]+)\)', text)]
 
 
+# ── 현금잔고 행 생성 ──────────────────────────────────────────────────
+
+def _build_cash_record(account: str, last_usd: float, last_fx: float, last_date: str) -> dict | None:
+    """마지막 USD 현금 잔액으로 현금잔고 행을 반환한다.
+
+    토스증권 보조행(secondary line)의 마지막 ($ X) 금액이 거래 후 USD 현금 잔고.
+    환전외화입금 등 비거래 라인의 보조행도 포함하여 추적한다.
+    """
+    if last_usd <= 0 or last_fx <= 0 or not last_date:
+        return None
+
+    return {
+        "거래일자": last_date,
+        "유형": "현금잔고",
+        "종목코드": "",
+        "수량": 0.0,
+        "단가": 0.0,
+        "금액": round(last_usd, 6),
+        "환율": last_fx,
+        "금액KRW": round(last_usd * last_fx, 0),
+        "통화": "USD",
+        "증권사": BROKER,
+        "계좌번호": account,
+        "비고": "현금잔고",
+    }
+
+
 # ── PDF 파싱 ─────────────────────────────────────────────────────────
 
 def _merge_duplicate_fills(records: list[dict]) -> list[dict]:
@@ -159,6 +186,7 @@ def _parse_main_line(line: str, account: str, in_dollar_section: bool) -> dict |
     fx = parse_float(tokens[-9])
     qty = parse_float(tokens[-8])
     amount_krw = parse_float(tokens[-7])
+    balance_krw = parse_float(tokens[-1])  # 잔액(원): 이 거래 후 KRW 현금 잔고
 
     # 종목명: tokens[2:-9] 합치기
     name_raw = ' '.join(tokens[2:-9])
@@ -192,6 +220,8 @@ def _parse_main_line(line: str, account: str, in_dollar_section: bool) -> dict |
         "계좌번호": account,
         "비고": name,
         "_isin": isin,        # 내부 추적용 (CSV 저장 시 제외)
+        "_balance_krw": balance_krw,  # 내부 추적용: 이 거래 후 잔액(원)
+        "_fx": fx,            # 내부 추적용: 이 거래의 환율
     }
 
 
@@ -238,6 +268,14 @@ def parse_toss_pdf(pdf_path: str) -> list[dict]:
     current_record = None
     in_dollar_section = False
 
+    # 현금잔고 추적: 보조행의 마지막 ($ X) = 해당 거래 후 USD 현금 잔고.
+    # 환전외화입금 등 비거래 라인도 포함하여 모든 보조행에서 추적한다.
+    last_usd_balance = 0.0
+    last_usd_fx = 0.0
+    last_usd_date = ""
+    current_line_date = ""
+    current_line_fx = 0.0
+
     try:
         with pdfplumber.open(pdf_path) as pdf:
             for page in pdf.pages:
@@ -270,6 +308,13 @@ def parse_toss_pdf(pdf_path: str) -> list[dict]:
                     if line.startswith('('):
                         if current_record is not None:
                             _process_secondary_line(line, current_record)
+                        # 달러 섹션의 모든 보조행에서 마지막 달러 금액(USD 현금 잔고)을 추적
+                        if in_dollar_section and current_line_fx > 0:
+                            amounts = _parse_dollar_amounts(line)
+                            if amounts:
+                                last_usd_balance = amounts[-1]  # 마지막 금액 = USD 잔액
+                                last_usd_fx = current_line_fx
+                                last_usd_date = current_line_date
                         continue
 
                     # 거래 본문행
@@ -277,8 +322,17 @@ def parse_toss_pdf(pdf_path: str) -> list[dict]:
                     if record:
                         records.append(record)
                         current_record = record
+                        current_line_date = record["거래일자"]
+                        current_line_fx = record["환율"]
                     else:
                         current_record = None
+                        # 비거래 본문행에서도 날짜·환율 추출 (환전외화입금 등)
+                        if in_dollar_section:
+                            tokens = line.split()
+                            if (len(tokens) >= 3
+                                    and re.match(r'^\d{4}\.\d{2}\.\d{2}$', tokens[0])):
+                                current_line_date = tokens[0].replace('.', '-')
+                                current_line_fx = parse_float(tokens[2])
 
     except Exception as e:
         print(f"  [ERROR] PDF 읽기 실패: {e}")
@@ -288,6 +342,11 @@ def parse_toss_pdf(pdf_path: str) -> list[dict]:
 
     # 동일 조건 복수 거래 합산 (같은 날 같은 가격에 여러 번 분할 체결된 경우)
     records = _merge_duplicate_fills(records)
+
+    # 보조행에서 추적한 마지막 USD 현금 잔고로 현금잔고 행 생성
+    cash_record = _build_cash_record(account, last_usd_balance, last_usd_fx, last_usd_date)
+    if cash_record:
+        records.append(cash_record)
 
     # 중간 CSV 저장 (OUTPUT_COLUMNS만 포함, _isin 등 내부 키 제외)
     if records:

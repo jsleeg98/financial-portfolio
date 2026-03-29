@@ -146,6 +146,19 @@ tr:last-child td { border-bottom: none; }
 }
 .pill.active { background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; font-weight: 600; }
 .pill:hover:not(.active) { border-color: var(--accent-blue); color: var(--text-primary); }
+
+/* Chart header with toggle */
+.chart-box-header {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;
+}
+.chart-box-header h3 { font-size: 14px; color: var(--text-secondary); margin: 0; }
+.pie-toggle { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.pie-toggle button {
+  padding: 3px 10px; font-size: 11px; border: none; background: transparent;
+  color: var(--text-secondary); cursor: pointer; transition: background 0.15s;
+}
+.pie-toggle button.active { background: var(--accent-blue); color: #fff; font-weight: 600; }
+.pie-toggle button:hover:not(.active) { background: var(--bg-secondary); color: var(--text-primary); }
 </style>
 </head>
 <body>
@@ -168,7 +181,16 @@ tr:last-child td { border-bottom: none; }
   <!-- Tab 1: 계좌현황 -->
   <section id="tab-overview" class="active">
     <div id="account-selector" class="account-selector"></div>
-    <div class="chart-box"><h3>보유 종목 비중</h3><div class="chart-wrap-pie"><canvas id="chart-holdings-pie"></canvas></div></div>
+    <div class="chart-box">
+      <div class="chart-box-header">
+        <h3>보유 종목 비중</h3>
+        <div class="pie-toggle">
+          <button id="pie-btn-ticker" class="active" onclick="setPieMode('ticker')">종목별</button>
+          <button id="pie-btn-category" onclick="setPieMode('category')">유형별</button>
+        </div>
+      </div>
+      <div class="chart-wrap-pie"><canvas id="chart-holdings-pie"></canvas></div>
+    </div>
     <div class="cards" id="overview-cards">
       <div class="card"><div class="card-label">평가금액</div><div class="card-value" id="v-total">-</div><div class="card-sub" id="v-total-sub"></div></div>
       <div class="card"><div class="card-label">평가손익</div><div class="card-value" id="v-profit">-</div><div class="card-sub" id="v-profit-sub"></div></div>
@@ -177,6 +199,7 @@ tr:last-child td { border-bottom: none; }
     </div>
     <div class="chart-box"><h3>월별 계좌 추세</h3><div class="chart-wrap"><canvas id="chart-trend"></canvas></div></div>
     <div class="chart-box"><h3>월별 손익</h3><div class="chart-wrap"><canvas id="chart-pnl"></canvas></div></div>
+    <div class="chart-box"><h3>월별 실현손익</h3><div class="chart-wrap"><canvas id="chart-realized"></canvas></div></div>
     <div class="table-box"><h3>보유 종목</h3><div class="table-scroll"><table id="tbl-holdings"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평균단가</th><th class="num">현재가</th><th class="num">평가액</th><th class="num">수익률</th><th>비중</th></tr></thead><tbody></tbody></table></div></div>
   </section>
 
@@ -250,6 +273,17 @@ Chart.defaults.plugins.legend.labels.padding = 8;
 let selectedAccount = '전체';
 let selectedHistoryAccount = '전체';
 let isPriceFetching = false;
+// 과거 월별 시세 캐시: { ticker: { "YYYY-MM": price } } — localStorage에 영구 저장
+let priceHistory = {};
+// 대시보드 보유종목 목록에서 숨길 종목 (총자산 계산에는 포함됨)
+// web/data/portfolio_config.json의 excludedTickers 값으로 초기화됨
+let excludedTickers = [];
+// 자산유형 분류: { category: [ticker, ...] } — web/data/asset_categories.json
+let assetCategories = {};
+// 파이 차트 표시 모드: 'ticker' | 'category'
+let pieMode = 'ticker';
+// renderHoldingsPie에 전달할 최근 holdings (피 모드 전환 시 재렌더링용)
+let lastHoldings = [];
 const ACCOUNT_COLORS = ['#3fb950', '#d29922', '#f85149', '#bc8cff'];
 
 // ── CSV 파싱 ────────────────────────────────────────────────────
@@ -321,6 +355,34 @@ function parseBenchmarkCSV(text) {
 }
 
 async function loadBenchmarkCSVs() {
+  // 자산유형 분류 로드
+  try {
+    const resp = await fetch('./data/asset_categories.json');
+    if (resp.ok) {
+      const raw = await resp.json();
+      assetCategories = {};
+      for (const [cat, tickers] of Object.entries(raw)) {
+        if (cat.startsWith('_')) continue; // _comment 등 메타 키 제외
+        assetCategories[cat] = tickers;
+      }
+    }
+  } catch(e) { /* 파일 없으면 유형별 토글 비활성 */ }
+
+  // 과거 시세 파일 로드 (output/price_history.json → web/data/price_history.json)
+  try {
+    const resp = await fetch('./data/price_history.json');
+    if (resp.ok) {
+      const filePrices = await resp.json();
+      // 파일 데이터 우선, localStorage는 파일에 없는 데이터만 보완
+      for (const [ticker, months] of Object.entries(filePrices)) {
+        if (!priceHistory[ticker]) priceHistory[ticker] = {};
+        for (const [month, price] of Object.entries(months)) {
+          priceHistory[ticker][month] = price; // 파일이 localStorage보다 우선
+        }
+      }
+    }
+  } catch(e) { /* 파일 없으면 localStorage만 사용 */ }
+
   const paths = [
     ['./data/sp500_daily.csv', 'sp500'],
     ['./data/nasdaq100_daily.csv', 'nasdaq'],
@@ -376,10 +438,11 @@ function buildAccountSelector(txns) {
       container.querySelectorAll('.pill').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       const filtered = filterTxns(rawTransactions, selectedAccount);
-      const p = computePortfolio(filtered, currentPrices, currentFX, benchmarkFX);
+      const p = computePortfolio(filtered, currentPrices, currentFX, benchmarkFX, priceHistory);
       renderCards(p);
       renderHoldings(p.currentHoldings);
       renderPnLChart(p);
+      renderRealizedPnLChart(p);
     });
   });
 }
@@ -409,7 +472,7 @@ function renderAll(portfolio) {
   const filteredTxns = filterTxns(rawTransactions, selectedAccount);
   const filteredPortfolio = selectedAccount === '전체'
     ? portfolio
-    : computePortfolio(filteredTxns, currentPrices, currentFX, benchmarkFX);
+    : computePortfolio(filteredTxns, currentPrices, currentFX, benchmarkFX, priceHistory);
   renderCards(filteredPortfolio);
   renderHoldings(filteredPortfolio.currentHoldings);
   buildHistoryAccountSelector(rawTransactions);
@@ -419,7 +482,7 @@ function renderAll(portfolio) {
 }
 
 function renderCards(p) {
-  document.getElementById('v-total').textContent = fmtKRW(p.totalValueKRW);
+  document.getElementById('v-total').textContent = fmtKRW(p.netAssetKRW);
   document.getElementById('v-total-sub').textContent = '';
 
   const profitEl = document.getElementById('v-profit');
@@ -434,7 +497,39 @@ function renderCards(p) {
   document.getElementById('v-fx').textContent = fmt(currentFX);
 }
 
+function setPieMode(mode) {
+  pieMode = mode;
+  document.getElementById('pie-btn-ticker').classList.toggle('active', mode === 'ticker');
+  document.getElementById('pie-btn-category').classList.toggle('active', mode === 'category');
+  renderHoldingsPie(lastHoldings);
+}
+
 function renderHoldingsPie(holdings) {
+  lastHoldings = holdings;
+
+  // 유형별 모드: holdings를 카테고리별로 합산
+  let items; // { label, valueKRW, weight }[]
+  if (pieMode === 'category' && Object.keys(assetCategories).length > 0) {
+    // 티커 → 카테고리 역방향 맵
+    const tickerToCat = {};
+    for (const [cat, tickers] of Object.entries(assetCategories)) {
+      for (const t of tickers) tickerToCat[t] = cat;
+    }
+    const grouped = {};
+    for (const h of holdings) {
+      const cat = tickerToCat[h.ticker] || '기타';
+      if (!grouped[cat]) grouped[cat] = 0;
+      grouped[cat] += h.valueKRW;
+    }
+    const total = Object.values(grouped).reduce((s, v) => s + v, 0) || 1;
+    items = Object.entries(grouped)
+      .filter(([, v]) => v > 0)
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, valueKRW]) => ({ label, valueKRW, weight: valueKRW / total * 100 }));
+  } else {
+    items = holdings.map(h => ({ label: h.ticker, valueKRW: h.valueKRW, weight: h.weight }));
+  }
+
   const ctx = document.getElementById('chart-holdings-pie').getContext('2d');
   const COLORS = [
     '#58a6ff','#3fb950','#d29922','#bc8cff','#f85149',
@@ -442,14 +537,34 @@ function renderHoldingsPie(holdings) {
     '#388bfd','#26a641','#9e6a03','#8957e5','#da3633',
   ];
   if (charts['holdings-pie']) charts['holdings-pie'].destroy();
-  if (!holdings.length) return;
+  if (!items.length) return;
+
+  function fmtVal(v) {
+    if (v >= 100000000) return (v / 100000000).toFixed(1) + '억';
+    if (v >= 10000) return Math.round(v / 10000) + '만';
+    return Math.round(v) + '원';
+  }
+
+  const isMobile = window.innerWidth < 600;
+  const n = items.length;
+
+  // 차트 높이를 범례 항목 수에 맞게 동적 조정
+  const wrap = document.querySelector('.chart-wrap-pie');
+  if (isMobile) {
+    const legendRows = Math.ceil(n / 2);
+    wrap.style.height = Math.max(360, 220 + legendRows * 30) + 'px';
+  } else {
+    wrap.style.height = Math.max(340, n * 28 + 60) + 'px';
+  }
+
   charts['holdings-pie'] = new Chart(ctx, {
     type: 'doughnut',
     data: {
-      labels: holdings.map(h => h.ticker),
+      labels: items.map(h => h.label),
       datasets: [{
-        data: holdings.map(h => parseFloat(h.weight.toFixed(2))),
-        backgroundColor: COLORS.slice(0, holdings.length),
+        data: items.map(h => parseFloat(h.weight.toFixed(2))),
+        valuations: items.map(h => h.valueKRW),
+        backgroundColor: COLORS.slice(0, items.length),
         borderColor: '#1c2128',
         borderWidth: 2,
       }]
@@ -459,25 +574,35 @@ function renderHoldingsPie(holdings) {
       maintainAspectRatio: false,
       plugins: {
         legend: {
-          position: window.innerWidth < 600 ? 'bottom' : 'right',
+          position: isMobile ? 'bottom' : 'right',
           labels: {
             color: '#ffffff',
-            font: { size: window.innerWidth < 600 ? 12 : 13, weight: '500' },
-            padding: window.innerWidth < 600 ? 10 : 16,
-            boxWidth: 14,
-            boxHeight: 14,
-            generateLabels: (chart) => chart.data.labels.map((label, i) => ({
-              text: `${label}  ${chart.data.datasets[0].data[i].toFixed(1)}%`,
-              fillStyle: COLORS[i],
-              strokeStyle: 'transparent',
-              lineWidth: 0,
-              fontColor: '#ffffff',
-              hidden: false,
-              index: i,
-            }))
+            font: { size: isMobile ? 11 : 12, weight: '500' },
+            padding: isMobile ? 8 : 12,
+            boxWidth: 12,
+            boxHeight: 12,
+            generateLabels: (chart) => {
+              const vals = chart.data.datasets[0].valuations;
+              return chart.data.labels.map((label, i) => ({
+                text: `${label}  ${fmtVal(vals[i])}  ${chart.data.datasets[0].data[i].toFixed(1)}%`,
+                fillStyle: COLORS[i],
+                strokeStyle: 'transparent',
+                lineWidth: 0,
+                fontColor: '#ffffff',
+                hidden: false,
+                index: i,
+              }));
+            }
           }
         },
-        tooltip: { callbacks: { label: c => ` ${c.label}: ${c.parsed.toFixed(1)}%` } },
+        tooltip: {
+          callbacks: {
+            label: c => {
+              const val = c.chart.data.datasets[0].valuations[c.dataIndex];
+              return ` ${c.label}: ${fmtVal(val)} (${c.parsed.toFixed(1)}%)`;
+            }
+          }
+        },
         datalabels: {
           display: (ctx) => ctx.dataset.data[ctx.dataIndex] >= 5,
           color: '#ffffff',
@@ -494,17 +619,25 @@ function renderHoldingsPie(holdings) {
 }
 
 function renderHoldings(holdings) {
+  // 제외 종목 필터링 (총자산 계산에는 포함, 목록 표시에서만 숨김)
+  if (excludedTickers.length > 0) {
+    holdings = holdings.filter(h => !excludedTickers.includes(h.ticker));
+  }
   const tbody = document.querySelector('#tbl-holdings tbody');
   const fmtPrice = (h) => h.currency === 'USD' ? fmtUSD(h.avgCost) : '₩' + fmt(h.avgCost);
   const fmtCurPrice = (h) => isPriceFetching ? '<span style="color:var(--text-secondary);font-size:11px">시세 조회 중...</span>' : (h.currency === 'USD' ? fmtUSD(h.price) : '₩' + fmt(h.price));
+  const fmtQty = (h) => {
+    if (h.isCash) return h.currency === 'USD' ? fmtUSD(h.qty) : '₩' + fmt(h.qty);
+    return h.qty % 1 === 0 ? h.qty : h.qty.toFixed(4);
+  };
   tbody.innerHTML = holdings.map(h => `
-    <tr>
+    <tr${h.isCash ? ' style="opacity:0.85"' : ''}>
       <td><strong>${h.ticker}</strong></td>
-      <td class="num">${h.qty % 1 === 0 ? h.qty : h.qty.toFixed(4)}</td>
-      <td class="num">${fmtPrice(h)}</td>
-      <td class="num">${fmtCurPrice(h)}</td>
+      <td class="num">${fmtQty(h)}</td>
+      <td class="num">${h.isCash ? '-' : fmtPrice(h)}</td>
+      <td class="num">${h.isCash ? '-' : fmtCurPrice(h)}</td>
       <td class="num">${fmtKRW(h.valueKRW)}</td>
-      <td class="num ${h.returnPct >= 0 ? 'positive' : 'negative'}">${fmtPct(h.returnPct)}</td>
+      <td class="num">${h.isCash ? '-' : `<span class="${h.returnPct >= 0 ? 'positive' : 'negative'}">${fmtPct(h.returnPct)}</span>`}</td>
       <td><div>${h.weight.toFixed(1)}%</div><div class="weight-bar"><div class="weight-fill" style="width:${h.weight}%"></div></div></td>
     </tr>
   `).join('');
@@ -569,13 +702,53 @@ function renderPnLChart(p) {
   });
 }
 
+function renderRealizedPnLChart(p) {
+  destroyChart('realized');
+  const labels = p.monthlyRealizedPnL.map(m => m.month);
+  const realizedData = p.monthlyRealizedPnL.map(m => m.realized);
+  const cumulativeData = p.monthlyRealizedPnL.map(m => m.cumulative);
+  charts.realized = new Chart(document.getElementById('chart-realized'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '월 실현손익',
+          data: realizedData,
+          backgroundColor: realizedData.map(v => v >= 0 ? 'rgba(63,185,80,0.7)' : 'rgba(248,81,73,0.7)'),
+          yAxisID: 'y'
+        },
+        {
+          label: '누적 실현손익',
+          data: cumulativeData,
+          type: 'line',
+          borderColor: '#58a6ff',
+          backgroundColor: 'transparent',
+          fill: false,
+          tension: 0.3,
+          pointRadius: 2,
+          yAxisID: 'y'
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top' } },
+      scales: {
+        y: { ticks: { callback: v => (v/10000).toFixed(0) + '만', maxTicksLimit: 6 } },
+        x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 8 } }
+      }
+    }
+  });
+}
+
 function renderCharts(p, allTxns) {
   const labels = p.monthlyTrend.map(m => m.month);
 
   // 계좌별 월별 평가액 계산 (2개 이상 계좌일 때만)
   const accounts = allTxns ? getAccounts(allTxns) : [];
   const accountDatasets = accounts.length > 1 ? accounts.map((acc, i) => {
-    const ap = computePortfolio(filterTxns(allTxns, acc), currentPrices, currentFX, benchmarkFX);
+    const ap = computePortfolio(filterTxns(allTxns, acc), currentPrices, currentFX, benchmarkFX, priceHistory);
     const apMap = {};
     ap.monthlyTrend.forEach(m => { apMap[m.month] = Math.round(m.valuation); });
     return {
@@ -611,9 +784,10 @@ function renderCharts(p, allTxns) {
   // Chart 2: 월별 손익 (선택 계좌 기준)
   const filteredTxns = allTxns ? filterTxns(allTxns, selectedAccount) : null;
   const pnlPortfolio = (selectedAccount !== '전체' && filteredTxns)
-    ? computePortfolio(filteredTxns, currentPrices, currentFX, benchmarkFX)
+    ? computePortfolio(filteredTxns, currentPrices, currentFX, benchmarkFX, priceHistory)
     : p;
   renderPnLChart(pnlPortfolio);
+  renderRealizedPnLChart(pnlPortfolio);
 }
 
 function renderPerformance(p) {
@@ -845,6 +1019,94 @@ function renderPerformanceMonthly(p) {
   destroyChart('gap');
 }
 
+// ── 과거 시세 캐시 ────────────────────────────────────────────────
+function savePriceHistory() {
+  try { localStorage.setItem('priceHistory', JSON.stringify(priceHistory)); } catch(e) { console.warn('과거 시세 저장 실패', e); }
+}
+
+// KRW 종목명 → Yahoo Finance 심볼 캐시 (e.g. "KODEX미국S&P500" → "379800.KS")
+let symbolCache = {};
+function saveSymbolCache() {
+  try { localStorage.setItem('yfSymbolCache', JSON.stringify(symbolCache)); } catch(e) {}
+}
+
+// Yahoo Finance 검색으로 KRW 종목의 .KS/.KQ 심볼 조회 (캐시 우선)
+async function resolveKRWSymbol(ticker) {
+  if (symbolCache[ticker]) return symbolCache[ticker];
+  try {
+    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&quotesCount=6&newsCount=0&listsCount=0`;
+    const data = await fetchWithProxy(url);
+    const quotes = data.quotes || [];
+    const kr = quotes.find(q => q.symbol?.endsWith('.KS') || q.symbol?.endsWith('.KQ'));
+    if (kr) {
+      symbolCache[ticker] = kr.symbol;
+      saveSymbolCache();
+      return kr.symbol;
+    }
+  } catch(e) {
+    console.warn(`${ticker} 심볼 검색 실패:`, e);
+  }
+  return null; // 실패 시 미캐시 → 다음 시세 조회 때 재시도
+}
+
+// 아직 캐시에 없는 (ticker, month) 쌍 계산
+// 반환: { ticker: { months: string[], currency: 'USD'|'KRW' } }
+function computeNeededHistoricalPrices() {
+  const todayYM = new Date().toISOString().slice(0, 7);
+  const p = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX, priceHistory);
+  const needed = {};
+  const add = (ticker, month, currency) => {
+    if (priceHistory[ticker]?.[month] == null) {
+      if (!needed[ticker]) needed[ticker] = { months: [], currency };
+      needed[ticker].months.push(month);
+    }
+  };
+  p.monthlyHoldings.forEach(({ month, usdTickers, krwTickers }) => {
+    if (month >= todayYM) return;
+    usdTickers.forEach(t => add(t, month, 'USD'));
+    krwTickers.forEach(t => add(t, month, 'KRW'));
+  });
+  return needed;
+}
+
+// 종목별 월별 시세를 Yahoo Finance에서 일괄 조회하고 캐시에 저장
+async function fetchHistoricalPrices(neededMap) {
+  const tickers = Object.keys(neededMap);
+  if (!tickers.length) return;
+  let fetched = 0;
+  for (const ticker of tickers) {
+    const { months, currency } = neededMap[ticker];
+    // KRW 종목은 먼저 심볼 검색
+    let yfSymbol = ticker;
+    if (currency === 'KRW') {
+      yfSymbol = await resolveKRWSymbol(ticker);
+      if (!yfSymbol) continue;
+    }
+    const sortedMonths = months.sort();
+    const period1 = Math.floor(new Date(`${sortedMonths[0]}-01T00:00:00Z`).getTime() / 1000);
+    const period2 = Math.floor(Date.now() / 1000);
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yfSymbol}?interval=1mo&period1=${period1}&period2=${period2}`;
+      const data = await fetchWithProxy(url);
+      const result = data.chart?.result?.[0];
+      if (!result) continue;
+      const timestamps = result.timestamp || [];
+      const closes = result.indicators?.quote?.[0]?.close || [];
+      if (!priceHistory[ticker]) priceHistory[ticker] = {};
+      timestamps.forEach((ts, i) => {
+        if (closes[i] == null) return;
+        const d = new Date(ts * 1000);
+        const m = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+        priceHistory[ticker][m] = closes[i];
+      });
+      fetched++;
+    } catch(e) {
+      console.warn(`${ticker} (${yfSymbol}) 과거 시세 실패:`, e);
+    }
+  }
+  if (fetched > 0) savePriceHistory();
+}
+
 // ── 시세 업데이트 (Yahoo Finance, 무료) ─────────────────────────
 async function fetchWithProxy(url) {
   const enc = encodeURIComponent(url);
@@ -935,6 +1197,10 @@ async function fetchPricesFromAPI() {
 
 // ── 이벤트 ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  // 과거 시세 캐시 로드 (localStorage)
+  try { priceHistory = JSON.parse(localStorage.getItem('priceHistory') || '{}'); } catch { priceHistory = {}; }
+  try { symbolCache = JSON.parse(localStorage.getItem('yfSymbolCache') || '{}'); } catch { symbolCache = {}; }
+
   // 탭 전환
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -945,6 +1211,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // portfolio_config.json 로드 (excludedTickers 등)
+  fetch('./data/portfolio_config.json')
+    .then(r => r.ok ? r.json() : null)
+    .then(cfg => { if (cfg?.excludedTickers) excludedTickers = cfg.excludedTickers; })
+    .catch(() => {});
+
   // 벤치마크 CSV 자동 로드
   loadBenchmarkCSVs();
 
@@ -954,7 +1226,7 @@ document.addEventListener('DOMContentLoaded', () => {
     selectedAccount = '전체';
     selectedHistoryAccount = '전체';
     if (!benchmarkLoaded) await loadBenchmarkCSVs();
-    const portfolio = computePortfolio(txns, currentPrices, currentFX, benchmarkFX);
+    const portfolio = computePortfolio(txns, currentPrices, currentFX, benchmarkFX, priceHistory);
     renderAll(portfolio);
     // 데이터 로드 시 자동으로 시세 조회 (최초 1회)
     await updatePrices();
@@ -985,22 +1257,32 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-price').addEventListener('click', () => updatePrices());
 
   async function updatePrices() {
-    document.getElementById('btn-price').textContent = '업데이트 중...';
+    const btnEl = document.getElementById('btn-price');
+    btnEl.textContent = '업데이트 중...';
     isPriceFetching = true;
     try {
       if (rawTransactions.length > 0) {
-        const p = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
+        const p = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX, priceHistory);
         const filteredHoldings = selectedAccount === '전체'
           ? p.currentHoldings
-          : computePortfolio(rawTransactions.filter(tx => `${tx.증권사}-${tx.계좌번호}` === selectedAccount), currentPrices, currentFX, benchmarkFX).currentHoldings;
+          : computePortfolio(rawTransactions.filter(tx => `${tx.증권사}-${tx.계좌번호}` === selectedAccount), currentPrices, currentFX, benchmarkFX, priceHistory).currentHoldings;
         renderHoldings(filteredHoldings);  // 로딩 표시용
       }
       await fetchPricesFromAPI();
+      // 과거 월별 시세 조회 (캐시에 없는 종목/월만)
+      if (rawTransactions.length > 0) {
+        const neededMap = computeNeededHistoricalPrices();
+        const needCount = Object.values(neededMap).reduce((s, v) => s + v.months.length, 0);
+        if (needCount > 0) {
+          btnEl.textContent = `과거 시세 조회 중... (${Object.keys(neededMap).length}종목)`;
+          await fetchHistoricalPrices(neededMap);
+        }
+      }
     } finally {
       isPriceFetching = false;  // renderAll 전에 반드시 false로
-      document.getElementById('btn-price').textContent = '시세';
+      btnEl.textContent = '시세';
       if (rawTransactions.length > 0) {
-        const portfolio = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX);
+        const portfolio = computePortfolio(rawTransactions, currentPrices, currentFX, benchmarkFX, priceHistory);
         renderAll(portfolio);  // 성공/실패 무관하게 항상 재렌더 (로딩 표시 제거)
       }
     }
