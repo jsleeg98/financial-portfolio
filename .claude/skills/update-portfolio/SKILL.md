@@ -1,6 +1,6 @@
 ---
 name: update-portfolio
-description: NH나무증권·메리츠증권 새 거래내역 XLS 파일 추가 후 CSV 재생성, 종목 매핑 확인, 테스트 검증, 스냅샷 업데이트, Google Sheets 업로드, 커밋/푸시까지 전체 워크플로우를 자동화하는 스킬. 사용자가 새 거래내역 추가, 계좌 업데이트, XLS 파싱 후 검증, 포트폴리오 데이터 갱신을 요청할 때 이 스킬을 사용하라. "/update-portfolio"로도 트리거된다.
+description: NH나무증권·메리츠증권·토스증권 새 거래내역 파일 추가 후 CSV 재생성, 종목 매핑 확인, 테스트 검증, 스냅샷 업데이트, Google Sheets 업로드, 커밋/푸시까지 전체 워크플로우를 자동화하는 스킬. 사용자가 새 거래내역 추가, 계좌 업데이트, 파싱 후 검증, 포트폴리오 데이터 갱신을 요청할 때 이 스킬을 사용하라. "/update-portfolio"로도 트리거된다.
 ---
 
 # 포트폴리오 데이터 업데이트 워크플로우
@@ -10,10 +10,11 @@ description: NH나무증권·메리츠증권 새 거래내역 XLS 파일 추가 
 
 ## 지원 증권사
 
-| 증권사 | 파서 스크립트 | 리소스 경로 |
-|--------|-------------|-----------|
-| NH나무증권 | `.claude/skills/parse-namu/scripts/parse_namu.py` | `resource/NH나무증권/` |
-| 메리츠증권 | `.claude/skills/parse-meritz/scripts/parse_meritz.py` | `resource/메리츠증권/` |
+| 증권사 | 파서 스크립트 | 리소스 경로 | 파일 형식 |
+|--------|-------------|-----------|---------|
+| NH나무증권 | `.claude/skills/parse-namu/scripts/parse_namu.py` | `resource/NH나무증권/` | XLS (HTML) |
+| 메리츠증권 | `.claude/skills/parse-meritz/scripts/parse_meritz.py` | `resource/메리츠증권/` | XLS (OLE2) |
+| 토스증권 | `.claude/skills/parse-toss/scripts/parse_toss.py` | `resource/토스증권/` | PDF |
 
 ## 전제 조건 확인
 
@@ -50,9 +51,12 @@ source .venv/bin/activate
 # 증권사별 파싱 (순서 중요: 첫 번째 파서가 CSV 생성, 이후는 병합)
 python .claude/skills/parse-namu/scripts/parse_namu.py resource/NH나무증권/
 python .claude/skills/parse-meritz/scripts/parse_meritz.py resource/메리츠증권/
+python .claude/skills/parse-toss/scripts/parse_toss.py resource/토스증권/
 ```
 
 파싱 완료 후 총 건수와 증권사·계좌별 건수를 확인하라.
+
+**토스증권 특이사항**: PDF 파싱 시 중간 CSV를 `resource/토스증권/{계좌번호}/{연도}/`에 자동 저장한다. 다음 실행부터는 중간 CSV를 바로 읽으므로 PDF 재파싱 없이 빠르게 처리된다.
 
 ## Step 3: 종목 매핑 확인
 
@@ -136,8 +140,8 @@ python scripts/upload_to_sheets.py
 
 ## 체크리스트 요약
 
-- [ ] XLS 파일 올바른 위치(연도 폴더)에 배치
-- [ ] 기존 CSV 삭제 후 전체 재생성 (NH나무증권 → 메리츠증권 순)
+- [ ] 파일 올바른 위치(연도 폴더)에 배치
+- [ ] 기존 CSV 삭제 후 전체 재생성 (NH나무증권 → 메리츠증권 → 토스증권 순)
 - [ ] 종목코드 컬럼에 ISIN/한국명/거래소코드 없음 확인
 - [ ] 19개 테스트 모두 통과
 - [ ] 새 종목 있으면 SAMPLE_PRICES 업데이트
