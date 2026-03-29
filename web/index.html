@@ -250,6 +250,9 @@ Chart.defaults.plugins.legend.labels.padding = 8;
 let selectedAccount = '전체';
 let selectedHistoryAccount = '전체';
 let isPriceFetching = false;
+// 대시보드 보유종목 목록에서 숨길 종목 (총자산 계산에는 포함됨)
+// web/data/portfolio_config.json의 excludedTickers 값으로 초기화됨
+let excludedTickers = [];
 const ACCOUNT_COLORS = ['#3fb950', '#d29922', '#f85149', '#bc8cff'];
 
 // ── CSV 파싱 ────────────────────────────────────────────────────
@@ -494,6 +497,10 @@ function renderHoldingsPie(holdings) {
 }
 
 function renderHoldings(holdings) {
+  // 제외 종목 필터링 (총자산 계산에는 포함, 목록 표시에서만 숨김)
+  if (excludedTickers.length > 0) {
+    holdings = holdings.filter(h => !excludedTickers.includes(h.ticker));
+  }
   const tbody = document.querySelector('#tbl-holdings tbody');
   const fmtPrice = (h) => h.currency === 'USD' ? fmtUSD(h.avgCost) : '₩' + fmt(h.avgCost);
   const fmtCurPrice = (h) => isPriceFetching ? '<span style="color:var(--text-secondary);font-size:11px">시세 조회 중...</span>' : (h.currency === 'USD' ? fmtUSD(h.price) : '₩' + fmt(h.price));
@@ -948,6 +955,12 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
     });
   });
+
+  // portfolio_config.json 로드 (excludedTickers 등)
+  fetch('./data/portfolio_config.json')
+    .then(r => r.ok ? r.json() : null)
+    .then(cfg => { if (cfg?.excludedTickers) excludedTickers = cfg.excludedTickers; })
+    .catch(() => {});
 
   // 벤치마크 CSV 자동 로드
   loadBenchmarkCSVs();
