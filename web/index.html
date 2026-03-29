@@ -146,6 +146,19 @@ tr:last-child td { border-bottom: none; }
 }
 .pill.active { background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; font-weight: 600; }
 .pill:hover:not(.active) { border-color: var(--accent-blue); color: var(--text-primary); }
+
+/* Chart header with toggle */
+.chart-box-header {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;
+}
+.chart-box-header h3 { font-size: 14px; color: var(--text-secondary); margin: 0; }
+.pie-toggle { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.pie-toggle button {
+  padding: 3px 10px; font-size: 11px; border: none; background: transparent;
+  color: var(--text-secondary); cursor: pointer; transition: background 0.15s;
+}
+.pie-toggle button.active { background: var(--accent-blue); color: #fff; font-weight: 600; }
+.pie-toggle button:hover:not(.active) { background: var(--bg-secondary); color: var(--text-primary); }
 </style>
 </head>
 <body>
@@ -168,7 +181,16 @@ tr:last-child td { border-bottom: none; }
   <!-- Tab 1: 계좌현황 -->
   <section id="tab-overview" class="active">
     <div id="account-selector" class="account-selector"></div>
-    <div class="chart-box"><h3>보유 종목 비중</h3><div class="chart-wrap-pie"><canvas id="chart-holdings-pie"></canvas></div></div>
+    <div class="chart-box">
+      <div class="chart-box-header">
+        <h3>보유 종목 비중</h3>
+        <div class="pie-toggle">
+          <button id="pie-btn-ticker" class="active" onclick="setPieMode('ticker')">종목별</button>
+          <button id="pie-btn-category" onclick="setPieMode('category')">유형별</button>
+        </div>
+      </div>
+      <div class="chart-wrap-pie"><canvas id="chart-holdings-pie"></canvas></div>
+    </div>
     <div class="cards" id="overview-cards">
       <div class="card"><div class="card-label">평가금액</div><div class="card-value" id="v-total">-</div><div class="card-sub" id="v-total-sub"></div></div>
       <div class="card"><div class="card-label">평가손익</div><div class="card-value" id="v-profit">-</div><div class="card-sub" id="v-profit-sub"></div></div>
@@ -256,6 +278,12 @@ let priceHistory = {};
 // 대시보드 보유종목 목록에서 숨길 종목 (총자산 계산에는 포함됨)
 // web/data/portfolio_config.json의 excludedTickers 값으로 초기화됨
 let excludedTickers = [];
+// 자산유형 분류: { category: [ticker, ...] } — web/data/asset_categories.json
+let assetCategories = {};
+// 파이 차트 표시 모드: 'ticker' | 'category'
+let pieMode = 'ticker';
+// renderHoldingsPie에 전달할 최근 holdings (피 모드 전환 시 재렌더링용)
+let lastHoldings = [];
 const ACCOUNT_COLORS = ['#3fb950', '#d29922', '#f85149', '#bc8cff'];
 
 // ── CSV 파싱 ────────────────────────────────────────────────────
@@ -327,6 +355,19 @@ function parseBenchmarkCSV(text) {
 }
 
 async function loadBenchmarkCSVs() {
+  // 자산유형 분류 로드
+  try {
+    const resp = await fetch('./data/asset_categories.json');
+    if (resp.ok) {
+      const raw = await resp.json();
+      assetCategories = {};
+      for (const [cat, tickers] of Object.entries(raw)) {
+        if (cat.startsWith('_')) continue; // _comment 등 메타 키 제외
+        assetCategories[cat] = tickers;
+      }
+    }
+  } catch(e) { /* 파일 없으면 유형별 토글 비활성 */ }
+
   // 과거 시세 파일 로드 (output/price_history.json → web/data/price_history.json)
   try {
     const resp = await fetch('./data/price_history.json');
@@ -456,7 +497,39 @@ function renderCards(p) {
   document.getElementById('v-fx').textContent = fmt(currentFX);
 }
 
+function setPieMode(mode) {
+  pieMode = mode;
+  document.getElementById('pie-btn-ticker').classList.toggle('active', mode === 'ticker');
+  document.getElementById('pie-btn-category').classList.toggle('active', mode === 'category');
+  renderHoldingsPie(lastHoldings);
+}
+
 function renderHoldingsPie(holdings) {
+  lastHoldings = holdings;
+
+  // 유형별 모드: holdings를 카테고리별로 합산
+  let items; // { label, valueKRW, weight }[]
+  if (pieMode === 'category' && Object.keys(assetCategories).length > 0) {
+    // 티커 → 카테고리 역방향 맵
+    const tickerToCat = {};
+    for (const [cat, tickers] of Object.entries(assetCategories)) {
+      for (const t of tickers) tickerToCat[t] = cat;
+    }
+    const grouped = {};
+    for (const h of holdings) {
+      const cat = tickerToCat[h.ticker] || '기타';
+      if (!grouped[cat]) grouped[cat] = 0;
+      grouped[cat] += h.valueKRW;
+    }
+    const total = Object.values(grouped).reduce((s, v) => s + v, 0) || 1;
+    items = Object.entries(grouped)
+      .filter(([, v]) => v > 0)
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, valueKRW]) => ({ label, valueKRW, weight: valueKRW / total * 100 }));
+  } else {
+    items = holdings.map(h => ({ label: h.ticker, valueKRW: h.valueKRW, weight: h.weight }));
+  }
+
   const ctx = document.getElementById('chart-holdings-pie').getContext('2d');
   const COLORS = [
     '#58a6ff','#3fb950','#d29922','#bc8cff','#f85149',
@@ -464,7 +537,7 @@ function renderHoldingsPie(holdings) {
     '#388bfd','#26a641','#9e6a03','#8957e5','#da3633',
   ];
   if (charts['holdings-pie']) charts['holdings-pie'].destroy();
-  if (!holdings.length) return;
+  if (!items.length) return;
 
   function fmtVal(v) {
     if (v >= 100000000) return (v / 100000000).toFixed(1) + '억';
@@ -473,7 +546,7 @@ function renderHoldingsPie(holdings) {
   }
 
   const isMobile = window.innerWidth < 600;
-  const n = holdings.length;
+  const n = items.length;
 
   // 차트 높이를 범례 항목 수에 맞게 동적 조정
   const wrap = document.querySelector('.chart-wrap-pie');
@@ -487,11 +560,11 @@ function renderHoldingsPie(holdings) {
   charts['holdings-pie'] = new Chart(ctx, {
     type: 'doughnut',
     data: {
-      labels: holdings.map(h => h.ticker),
+      labels: items.map(h => h.label),
       datasets: [{
-        data: holdings.map(h => parseFloat(h.weight.toFixed(2))),
-        valuations: holdings.map(h => h.valueKRW),
-        backgroundColor: COLORS.slice(0, holdings.length),
+        data: items.map(h => parseFloat(h.weight.toFixed(2))),
+        valuations: items.map(h => h.valueKRW),
+        backgroundColor: COLORS.slice(0, items.length),
         borderColor: '#1c2128',
         borderWidth: 2,
       }]
