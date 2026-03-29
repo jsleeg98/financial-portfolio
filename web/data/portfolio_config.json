@@ -1,6 +1,3 @@
 {
-  "excludedTickers": [
-    "KODEX미국S&P500",
-    "KODEX미국나스닥100"
-  ]
+  "excludedTickers": []
 }
