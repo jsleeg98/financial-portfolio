@@ -136,9 +136,12 @@ function computePortfolio(txns, prices, fx, dailyFX = {}) {
   }
 
   // cashByAccount 스냅샷이 있으면 accumulated cash 대신 사용
+  // USD: 스냅샷 없으면 0 처리 (NH나무증권처럼 환전→즉시매수 패턴은 매도 누적값이 실제 잔고와 무관)
   const _snapKeys = Object.keys(cashByAccount);
   if (_snapKeys.some(k => cashByAccount[k].USD !== undefined)) {
     cashUSD = _snapKeys.reduce((s, k) => s + (cashByAccount[k].USD || 0), 0);
+  } else {
+    cashUSD = 0;
   }
   if (_snapKeys.some(k => cashByAccount[k].KRW !== undefined)) {
     cashKRW = _snapKeys.reduce((s, k) => s + (cashByAccount[k].KRW || 0), 0);
