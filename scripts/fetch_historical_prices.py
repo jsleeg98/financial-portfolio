@@ -27,49 +27,28 @@ import yfinance as yf
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# ── KRW 종목명 → Yahoo Finance 심볼 수동 매핑 ───────────────────
-# Yahoo Finance 검색이 한글을 지원하지 않으므로, 알려진 종목은 여기 등록
-# 새 종목 추가 시 6자리 코드 + .KS(코스피) 또는 .KQ(코스닥)
-KNOWN_SYMBOLS: dict[str, str] = {
-    # ETF — KODEX (삼성자산운용)
-    "KODEX미국S&P500":           "379800.KS",
-    "KODEX미국나스닥100":         "379810.KS",
-    "KODEX은선물(H)":             "266420.KS",
-    "KODEX인도Nifty50":           "453810.KS",
-    # ETF — TIGER (미래에셋자산운용)
-    "TIGER미국S&P500":            "360750.KS",
-    "TIGER미국나스닥100":          "133690.KS",
-    "TIGER일본니케이225":          "241180.KS",
-    "TIGER 미국채10년선물":        "305080.KS",
-    # ETF — ACE (한국투자신탁운용)
-    "ACE미국나스닥100":            "367380.KS",
-    "ACEKRX금현물":               "411060.KS",
-    # ETF — RISE (KB자산운용)
-    "RISE미국S&P500":             "379780.KS",
-    "RISEKIS국고채30년Enhanced":  "385560.KS",
-    # ETF — SOL (신한자산운용)
-    "SOL미국AI전력인프라":         "486450.KS",
-    # 개별 종목
-    "삼성전자":    "005930.KS",
-    "삼성전자우":  "005935.KS",
-    "삼성SDI우":   "006405.KS",
-    "삼성중공업":  "010140.KS",
-    "삼성증권":    "016360.KS",
-    "현대차":      "005380.KS",
-    "현대차2우B":  "005387.KS",
-    "카카오":      "035720.KS",
-    "카카오뱅크":  "323410.KS",
-    "기업은행":    "024110.KS",
-    "한국전력":    "015760.KS",
-    "SK텔레콤":    "017670.KS",
-    "SK스퀘어":    "402340.KS",
-    "키움증권":    "039490.KS",
-    "LG이노텍":    "011070.KS",
-    "HLD&I":       "039570.KS",
-    "F&F홀딩스":   "007700.KS",
-    "DL이앤씨":    "375500.KS",
-    "KG이니시스":  "035600.KQ",
-}
+KNOWN_SYMBOLS_PATH = ROOT / "output" / "known_symbols.json"
+
+
+def _load_known_symbols() -> dict[str, str]:
+    """output/known_symbols.json에서 KRW 종목명 → Yahoo Finance 심볼 매핑 로드.
+    중첩 그룹 구조를 평탄화하고 빈 문자열(미확인) 항목은 제외한다."""
+    if not KNOWN_SYMBOLS_PATH.exists():
+        return {}
+    with open(KNOWN_SYMBOLS_PATH, encoding="utf-8") as f:
+        raw = json.load(f)
+    result = {}
+    for group in raw.values():
+        if not isinstance(group, dict):
+            continue
+        for name, symbol in group.items():
+            if symbol:  # 빈 문자열 제외
+                result[name] = symbol
+    return result
+
+
+KNOWN_SYMBOLS: dict[str, str] = _load_known_symbols()
+
 CSV_PATH     = ROOT / "output" / "종합거래내역.csv"
 CACHE_PATH   = ROOT / "output" / "price_history.json"
 WEB_PATH     = ROOT / "web" / "data" / "price_history.json"
