@@ -95,6 +95,18 @@ python scripts/fetch_benchmark.py
 출력 경로: `web/data/` (sp500_daily.csv, nasdaq100_daily.csv, kospi_daily.csv, usdkrw_daily.csv)
 기존 파일이 있으면 마지막 날짜 이후분만 추가된다.
 
+### 과거 시세 갱신
+
+```bash
+source .venv/bin/activate
+python scripts/fetch_historical_prices.py
+```
+
+- `output/종합거래내역.csv`에서 보유 종목을 파악하여 월별 종가를 yfinance로 조회
+- KRW 종목: `output/known_symbols.json`의 심볼 매핑 사용 → 미확인 항목은 Yahoo Finance 검색 시도
+- 조회 결과: `output/price_history.json` (gitignore, 로컬 캐시) + `web/data/price_history.json` (커밋 대상)
+- 이미 캐시된 월은 스킵하여 증분 업데이트
+
 ---
 
 ## 데이터 관리
@@ -125,6 +137,8 @@ python scripts/fetch_benchmark.py
    source .venv/bin/activate
    python .claude/skills/parse-namu/scripts/parse_namu.py resource/NH나무증권/
    python .claude/skills/parse-meritz/scripts/parse_meritz.py resource/메리츠증권/
+   python .claude/skills/parse-toss/scripts/parse_toss.py resource/토스증권/
+   python .claude/skills/parse-kiwoom/scripts/parse_kiwoom.py resource/키움증권/
    ```
 4. 테스트 실행: `node tests/test_portfolio.js`
 5. 테스트 결과에 따른 후속 조치 (아래 체크리스트 참조)
@@ -132,7 +146,11 @@ python scripts/fetch_benchmark.py
    ```bash
    python scripts/upload_to_sheets.py
    ```
-7. 커밋 및 푸시
+7. 과거 시세 갱신 및 커밋:
+   ```bash
+   python scripts/fetch_historical_prices.py
+   git add web/data/price_history.json && git commit -m "chore: 과거 시세 캐시 갱신"
+   ```
 
 ### Google Sheets 업로드
 
@@ -182,7 +200,12 @@ SGOV: 100.65$
 
 **공통:**
 - [ ] `web/index.html` → `SAMPLE_PRICES` (기본 현재가)
+- [ ] `web/data/asset_categories.json` → 해당 카테고리(지수/성장주/현금/가상자산/기타)에 티커 추가
 - [ ] `tests/test_portfolio.js` → 스냅샷 기대값 (보유 수량 포함 시)
+
+**KRW 종목 추가 시:**
+- [ ] `output/known_symbols.json` → 해당 카테고리 그룹에 `"종목명": "6자리코드.KS"` 형태로 추가
+- [ ] `python scripts/fetch_historical_prices.py`로 과거 시세 갱신
 
 ### 새 계좌 추가 체크리스트
 
@@ -197,6 +220,17 @@ SGOV: 100.65$
 - [ ] 전체 CSV 재생성 및 테스트
 - [ ] `tests/test_portfolio.js` → 새 계좌 스냅샷 테스트 추가
 - [ ] `web/index.html` → `SAMPLE_PRICES`에 새 종목 추가 (해당 시)
+
+### 데이터 파일 관리
+
+| 파일 | 위치 | git 관리 | 설명 |
+|------|------|---------|------|
+| `known_symbols.json` | `output/` | ❌ (gitignore) | KRW 종목명 → Yahoo Finance 심볼 (수동 관리) |
+| `symbol_cache.json` | `output/` | ❌ (gitignore) | Yahoo Finance 검색 결과 캐시 |
+| `price_history.json` | `output/` | ❌ (gitignore) | 로컬 과거 시세 캐시 |
+| `price_history.json` | `web/data/` | ✅ | GitHub Pages 배포용 과거 시세 |
+| `asset_categories.json` | `web/data/` | ✅ | 자산유형 분류 (지수/성장주/현금/가상자산) |
+| `portfolio_config.json` | `web/data/` | ✅ | 대시보드 설정 (제외 종목 등) |
 
 ### 알려진 허용 오차
 
