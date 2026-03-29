@@ -327,6 +327,21 @@ function parseBenchmarkCSV(text) {
 }
 
 async function loadBenchmarkCSVs() {
+  // 과거 시세 파일 로드 (output/price_history.json → web/data/price_history.json)
+  try {
+    const resp = await fetch('./data/price_history.json');
+    if (resp.ok) {
+      const filePrices = await resp.json();
+      // 파일 데이터 우선, localStorage는 파일에 없는 데이터만 보완
+      for (const [ticker, months] of Object.entries(filePrices)) {
+        if (!priceHistory[ticker]) priceHistory[ticker] = {};
+        for (const [month, price] of Object.entries(months)) {
+          priceHistory[ticker][month] = price; // 파일이 localStorage보다 우선
+        }
+      }
+    }
+  } catch(e) { /* 파일 없으면 localStorage만 사용 */ }
+
   const paths = [
     ['./data/sp500_daily.csv', 'sp500'],
     ['./data/nasdaq100_daily.csv', 'nasdaq'],
