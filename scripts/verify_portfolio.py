@@ -118,8 +118,13 @@ def estimate_fx(df: pd.DataFrame, prices: dict, target_acct: str, target_value: 
     return target_value / usd_val
 
 
-def compute_portfolio(acct_df: pd.DataFrame, prices: dict, fx: float) -> tuple[float, float, list]:
-    """보유현황 → (총 매입금액, 총 평가금액, 가격없는 종목 목록)"""
+def compute_portfolio(acct_df: pd.DataFrame, prices: dict, fx: float,
+                      verify_date: str = "") -> tuple[float, float, list]:
+    """보유현황 → (총 매입금액, 총 평가금액, 가격없는 종목 목록)
+
+    현금잔고 행(유형='현금잔고')도 평가금액에 포함한다.
+    단, 스냅샷이 verify_date 기준 90일 이내인 것만 포함한다 (오래된 스냅샷은 부정확).
+    """
     holdings = compute_holdings(acct_df)
     total_cost = total_val = 0.0
     unknown = []
@@ -136,6 +141,23 @@ def compute_portfolio(acct_df: pd.DataFrame, prices: dict, fx: float) -> tuple[f
             total_val += val
         else:
             unknown.append((ticker, round(h["qty"])))
+
+    # 현금잔고 추가: 계좌·통화별 마지막 스냅샷 (90일 이내만)
+    cash_rows = acct_df[acct_df["유형"] == "현금잔고"].sort_values("거래일자")
+    if not cash_rows.empty and verify_date:
+        from datetime import datetime, timedelta
+        cutoff = (datetime.strptime(verify_date, "%Y-%m-%d") - timedelta(days=90)).strftime("%Y-%m-%d")
+        cash_rows = cash_rows[cash_rows["거래일자"] >= cutoff]
+
+    if not cash_rows.empty:
+        # 통화별 마지막 스냅샷
+        for currency, grp in cash_rows.groupby("통화"):
+            last = grp.iloc[-1]
+            if currency == "USD":
+                cash_usd = float(last["금액"]) if float(last["금액"]) > 0 else float(last["금액KRW"]) / fx
+                total_val += cash_usd * fx
+            elif currency == "KRW":
+                total_val += float(last["금액KRW"])
 
     return total_cost, total_val, unknown
 
@@ -184,7 +206,7 @@ def main():
         if acct_df.empty:
             print(f"{acct:<22} [CSV에 데이터 없음]")
             continue
-        cost, val, unknown = compute_portfolio(acct_df, prices, fx)
+        cost, val, unknown = compute_portfolio(acct_df, prices, fx, verify_date=date_str)
         app_cost = app.get("매입금액", 0)
         app_val  = app.get("평가금액", 0)
         ce = (cost - app_cost) / app_cost * 100 if app_cost else 0
