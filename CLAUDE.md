@@ -106,6 +106,7 @@ python scripts/fetch_benchmark.py
 | NH나무증권 | `.claude/skills/parse-namu/scripts/parse_namu.py` | HTML-based XLS (EUC-KR) | `resource/NH나무증권/{계좌번호}/{연도}/` |
 | 메리츠증권 | `.claude/skills/parse-meritz/scripts/parse_meritz.py` | OLE2 Excel XLS (EUC-KR) | `resource/메리츠증권/{계좌번호}/{연도}/` |
 | 토스증권 | `.claude/skills/parse-toss/scripts/parse_toss.py` | PDF 거래내역 | `resource/토스증권/{계좌번호}/{연도}/` |
+| 키움증권 | `.claude/skills/parse-kiwoom/scripts/parse_kiwoom.py` | HTML-based XLS (UTF-8) | `resource/키움증권/{계좌번호}/` |
 
 ### 새 거래 내역 추가 워크플로우
 

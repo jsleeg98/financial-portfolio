@@ -332,6 +332,27 @@ test('라이브 CSV [209-02]: RISE 미국나스닥100 qty = 280', (t) => {
   assert.equal(sol, undefined, '[209-02] SOL 미국배당다우존스 전량 매도 후 잔고 없어야 함');
 });
 
+// [6265-5774] 키움증권 계좌 스냅샷
+// 새 거래 추가 시 아래 기대값을 함께 갱신하라.
+test('라이브 CSV [6265-5774]: 키움증권 보유수량 스냅샷', (t) => {
+  if (!requireLiveData(t)) return;
+  const txnsKiwoom = liveTxns.filter(tx => tx.계좌번호 === '6265-5774');
+  if (txnsKiwoom.length === 0) { t.skip('6265-5774 계좌 데이터 없음'); return; }
+  const result = computePortfolio(txnsKiwoom, {}, 1450);
+
+  result.currentHoldings.forEach(h => {
+    assert.ok(h.qty >= 0, `[6265-5774] ${h.ticker} qty 음수: ${h.qty}`);
+  });
+
+  const tiger = result.currentHoldings.find(h => h.ticker === 'TIGER미국S&P500');
+  assert.ok(tiger, '[6265-5774] TIGER미국S&P500 보유 종목 존재');
+  assert.equal(tiger.qty, 213, `[6265-5774] TIGER미국S&P500 qty: 예상 213, 실제 ${tiger.qty}`);
+
+  const kodexNas = result.currentHoldings.find(h => h.ticker === 'KODEX미국나스닥100');
+  assert.ok(kodexNas, '[6265-5774] KODEX미국나스닥100 보유 종목 존재');
+  assert.equal(kodexNas.qty, 729, `[6265-5774] KODEX미국나스닥100 qty: 예상 729, 실제 ${kodexNas.qty}`);
+});
+
 // ── 현금잔고 단위 테스트 ─────────────────────────────────────────
 
 test('현금잔고 USD: cashUSD가 SET됨', () => {
