@@ -1,11 +1,11 @@
 ---
 name: update-portfolio
-description: NH나무증권·메리츠증권·토스증권·키움증권 새 거래내역 파일 추가 후 CSV 재생성, 종목 매핑 확인, 테스트 검증, 스냅샷 업데이트, Google Sheets 업로드, 커밋/푸시까지 전체 워크플로우를 자동화하는 스킬. 사용자가 새 거래내역 추가, 계좌 업데이트, 파싱 후 검증, 포트폴리오 데이터 갱신을 요청할 때 이 스킬을 사용하라. "/update-portfolio"로도 트리거된다.
+description: NH나무증권·메리츠증권·토스증권·키움증권·빗썸 새 거래내역 파일 추가 후 CSV 재생성, 종목 매핑 확인, 테스트 검증, 스냅샷 업데이트, Google Sheets 업로드, 커밋/푸시까지 전체 워크플로우를 자동화하는 스킬. 사용자가 새 거래내역 추가, 계좌 업데이트, 파싱 후 검증, 포트폴리오 데이터 갱신을 요청할 때 이 스킬을 사용하라. "/update-portfolio"로도 트리거된다.
 ---
 
 # 포트폴리오 데이터 업데이트 워크플로우
 
-새 거래내역 XLS 파일이 추가되거나 기존 데이터를 갱신할 때 실행하는 표준 절차.
+새 거래내역 파일이 추가되거나 기존 데이터를 갱신할 때 실행하는 표준 절차.
 이 스킬은 순서대로 실행하되, 각 단계의 결과를 확인하고 이슈가 있으면 즉시 해결한다.
 
 ## 지원 증권사
@@ -16,6 +16,7 @@ description: NH나무증권·메리츠증권·토스증권·키움증권 새 거
 | 메리츠증권 | `.claude/skills/parse-meritz/scripts/parse_meritz.py` | `resource/메리츠증권/` | XLS (OLE2) |
 | 토스증권 | `.claude/skills/parse-toss/scripts/parse_toss.py` | `resource/토스증권/` | PDF |
 | 키움증권 | `.claude/skills/parse-kiwoom/scripts/parse_kiwoom.py` | `resource/키움증권/` | XLS (HTML, UTF-8) |
+| 빗썸 | `.claude/skills/parse-bithumb/scripts/parse_bithumb.py` | `resource/빗썸/` | XLSX |
 
 ## 전제 조건 확인
 
@@ -54,6 +55,7 @@ python .claude/skills/parse-namu/scripts/parse_namu.py resource/NH나무증권/
 python .claude/skills/parse-meritz/scripts/parse_meritz.py resource/메리츠증권/
 python .claude/skills/parse-toss/scripts/parse_toss.py resource/토스증권/
 python .claude/skills/parse-kiwoom/scripts/parse_kiwoom.py resource/키움증권/
+python .claude/skills/parse-bithumb/scripts/parse_bithumb.py resource/빗썸/
 ```
 
 파싱 완료 후 총 건수와 증권사·계좌별 건수를 확인하라.

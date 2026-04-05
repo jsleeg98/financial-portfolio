@@ -119,6 +119,7 @@ python scripts/fetch_historical_prices.py
 | 메리츠증권 | `.claude/skills/parse-meritz/scripts/parse_meritz.py` | OLE2 Excel XLS (EUC-KR) | `resource/메리츠증권/{계좌번호}/{연도}/` |
 | 토스증권 | `.claude/skills/parse-toss/scripts/parse_toss.py` | PDF 거래내역 | `resource/토스증권/{계좌번호}/{연도}/` |
 | 키움증권 | `.claude/skills/parse-kiwoom/scripts/parse_kiwoom.py` | HTML-based XLS (UTF-8) | `resource/키움증권/{계좌번호}/` |
+| 빗썸 | `.claude/skills/parse-bithumb/scripts/parse_bithumb.py` | XLSX (openpyxl) | `resource/빗썸/` |
 
 ### 새 거래 내역 추가 워크플로우
 
@@ -139,6 +140,7 @@ python scripts/fetch_historical_prices.py
    python .claude/skills/parse-meritz/scripts/parse_meritz.py resource/메리츠증권/
    python .claude/skills/parse-toss/scripts/parse_toss.py resource/토스증권/
    python .claude/skills/parse-kiwoom/scripts/parse_kiwoom.py resource/키움증권/
+   python .claude/skills/parse-bithumb/scripts/parse_bithumb.py resource/빗썸/
    ```
 4. 테스트 실행: `node tests/test_portfolio.js`
 5. 테스트 결과에 따른 후속 조치 (아래 체크리스트 참조)

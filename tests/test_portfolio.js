@@ -353,6 +353,27 @@ test('라이브 CSV [6265-5774]: 키움증권 보유수량 스냅샷', (t) => {
   assert.equal(kodexNas.qty, 729, `[6265-5774] KODEX미국나스닥100 qty: 예상 729, 실제 ${kodexNas.qty}`);
 });
 
+// [빗썸] 계좌 스냅샷
+// 새 거래 추가 시 아래 기대값을 함께 갱신하라.
+test('라이브 CSV [빗썸]: BTC·ETH 보유수량 스냅샷', (t) => {
+  if (!requireLiveData(t)) return;
+  const txnsBithumb = liveTxns.filter(tx => tx.증권사 === '빗썸');
+  if (txnsBithumb.length === 0) { t.skip('빗썸 계좌 데이터 없음'); return; }
+  const result = computePortfolio(txnsBithumb, {}, 1450);
+
+  result.currentHoldings.forEach(h => {
+    assert.ok(h.qty >= 0, `[빗썸] ${h.ticker} qty 음수: ${h.qty}`);
+  });
+
+  const btc = result.currentHoldings.find(h => h.ticker === 'BTC');
+  assert.ok(btc, '[빗썸] BTC 보유 종목 존재');
+  assert.ok(Math.abs(btc.qty - 0.02206828) < 0.00000001, `[빗썸] BTC qty: 예상 ≈ 0.02206828, 실제 ${btc.qty}`);
+
+  const eth = result.currentHoldings.find(h => h.ticker === 'ETH');
+  assert.ok(eth, '[빗썸] ETH 보유 종목 존재');
+  assert.ok(Math.abs(eth.qty - 1.71238596) < 0.00000001, `[빗썸] ETH qty: 예상 ≈ 1.71238596, 실제 ${eth.qty}`);
+});
+
 // ── 현금잔고 단위 테스트 ─────────────────────────────────────────
 
 test('현금잔고 USD: cashUSD가 SET됨', () => {
