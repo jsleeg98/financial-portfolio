@@ -1074,13 +1074,13 @@ async function fetchHistoricalPrices(neededMap) {
   const tickers = Object.keys(neededMap);
   if (!tickers.length) return;
   let fetched = 0;
-  for (const ticker of tickers) {
+  await Promise.all(tickers.map(async (ticker) => {
     const { months, currency } = neededMap[ticker];
     // KRW 종목은 먼저 심볼 검색
     let yfSymbol = ticker;
     if (currency === 'KRW') {
       yfSymbol = await resolveKRWSymbol(ticker);
-      if (!yfSymbol) continue;
+      if (!yfSymbol) return;
     }
     const sortedMonths = months.sort();
     const period1 = Math.floor(new Date(`${sortedMonths[0]}-01T00:00:00Z`).getTime() / 1000);
@@ -1089,7 +1089,7 @@ async function fetchHistoricalPrices(neededMap) {
       const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yfSymbol}?interval=1mo&period1=${period1}&period2=${period2}`;
       const data = await fetchWithProxy(url);
       const result = data.chart?.result?.[0];
-      if (!result) continue;
+      if (!result) return;
       const timestamps = result.timestamp || [];
       const closes = result.indicators?.quote?.[0]?.close || [];
       if (!priceHistory[ticker]) priceHistory[ticker] = {};
@@ -1103,7 +1103,7 @@ async function fetchHistoricalPrices(neededMap) {
     } catch(e) {
       console.warn(`${ticker} (${yfSymbol}) 과거 시세 실패:`, e);
     }
-  }
+  }));
   if (fetched > 0) savePriceHistory();
 }
 
@@ -1165,7 +1165,7 @@ async function fetchPricesFromAPI() {
   const allSymbols = [...foreignTickers, 'KRW=X'];
   statusEl.textContent = `시세 조회 중... (0/${allSymbols.length})`;
 
-  for (const symbol of allSymbols) {
+  await Promise.all(allSymbols.map(async (symbol) => {
     try {
       const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=1d&interval=1d`;
       const data = await fetchWithProxy(url);
@@ -1183,7 +1183,7 @@ async function fetchPricesFromAPI() {
       console.warn(`${symbol} 시세 실패:`, e);
       errors.push(symbol);
     }
-  }
+  }));
 
   if (updated === 0) {
     alert('시세 업데이트 실패. 네트워크 또는 CORS 프록시 문제일 수 있습니다.\n실패: ' + errors.join(', '));
