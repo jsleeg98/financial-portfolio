@@ -243,7 +243,7 @@ function requireLiveData(t) {
 }
 
 // parse_namu.py의 DEDUP_KEYS와 동일
-const DEDUP_KEYS = ['거래일자', '유형', '종목코드', '수량', '단가', '금액', '통화', '증권사', '계좌번호'];
+const DEDUP_KEYS = ['거래일자', '유형', '종목코드', '수량', '단가', '금액', '통화', '증권사', '계좌번호', '비고'];
 
 test('라이브 CSV: 중복 거래 없음', (t) => {
   if (!requireLiveData(t)) return;
