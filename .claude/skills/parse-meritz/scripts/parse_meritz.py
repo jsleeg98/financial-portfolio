@@ -31,7 +31,7 @@ OUTPUT_COLUMNS = [
 ]
 
 DEDUP_KEYS = [
-    "거래일자", "유형", "종목코드", "수량", "단가", "금액", "통화", "증권사", "계좌번호"
+    "거래일자", "유형", "종목코드", "수량", "단가", "금액", "통화", "증권사", "계좌번호", "비고"
 ]
 
 # ── 종목코드 → 티커 매핑 ─────────────────────────────────────────────
@@ -172,6 +172,7 @@ def parse_meritz_file(filepath: str) -> list[dict]:
         date_str = parse_date(str(main_row[0]))
         stock_code_raw = str(main_row[1]).strip()
         stock_name = str(detail_row[1]).strip()
+        tx_no = str(detail_row[8]).strip() if len(detail_row) > 8 else ""
         qty = parse_float(main_row[2])
         unit_price = parse_float(detail_row[2])
         amount = parse_float(main_row[5])  # 거래금액 (상세의 반영금액과 동일)
@@ -196,7 +197,7 @@ def parse_meritz_file(filepath: str) -> list[dict]:
             "통화": currency,
             "증권사": BROKER,
             "계좌번호": account,
-            "비고": stock_name,
+            "비고": f"{stock_name}#{tx_no}" if tx_no else stock_name,
         })
 
     # 현금잔고 행 추가
