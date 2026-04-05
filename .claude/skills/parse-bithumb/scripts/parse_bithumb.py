@@ -391,7 +391,7 @@ def main():
     })
 
     new_df = pd.DataFrame(all_records, columns=OUTPUT_COLUMNS)
-    new_df = new_df.sort_values("거래일자").reset_index(drop=True)
+    new_df = new_df.sort_values("거래일자", kind="stable").reset_index(drop=True)
 
     # 기존 CSV와 병합 또는 신규 생성
     output_path = OUTPUT_CSV
@@ -409,7 +409,7 @@ def main():
 
     # 중복 제거 (DEDUP_KEYS에 비고(시간 포함)가 있어 오탐 없음)
     before = len(merged)
-    merged = merged.sort_values("거래일자").reset_index(drop=True)
+    merged = merged.sort_values("거래일자", kind="stable").reset_index(drop=True)
     merged = merged.drop_duplicates(subset=DEDUP_KEYS, keep="first")
     after = len(merged)
     if before != after:
