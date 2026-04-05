@@ -30,6 +30,9 @@ OUTPUT_COLUMNS = [
     "금액", "환율", "금액KRW", "통화", "증권사", "계좌번호", "비고",
 ]
 
+# 중간 CSV에는 잔고_주(거래 후 보유수량)도 저장 — verify_balances.py에서 활용
+INTERMEDIATE_COLUMNS = OUTPUT_COLUMNS + ["잔고_주"]
+
 DEDUP_KEYS = [
     "거래일자", "유형", "종목코드", "수량", "단가", "금액", "통화", "증권사", "계좌번호", "비고"
 ]
@@ -120,6 +123,7 @@ def _build_cash_record(account: str, last_usd: float, last_fx: float, last_date:
         "증권사": BROKER,
         "계좌번호": account,
         "비고": "현금잔고",
+        "잔고_주": 0.0,
     }
 
 
@@ -148,6 +152,8 @@ def _merge_duplicate_fills(records: list[dict]) -> list[dict]:
                 base["수량"] = base.get("수량", 0) + r.get("수량", 0)
                 base["금액"] = round(base.get("금액", 0) + r.get("금액", 0), 6)
                 base["금액KRW"] = base.get("금액KRW", 0) + r.get("금액KRW", 0)
+            # 잔고_주: 합산 후 최종 잔고 = 그룹의 마지막 레코드 값
+            base["잔고_주"] = group[-1].get("잔고_주", 0)
             merged.append(base)
 
     return merged
@@ -186,6 +192,7 @@ def _parse_main_line(line: str, account: str, in_dollar_section: bool) -> dict |
     fx = parse_float(tokens[-9])
     qty = parse_float(tokens[-8])
     amount_krw = parse_float(tokens[-7])
+    balance_shares = parse_float(tokens[-2])  # 잔고(주): 이 거래 후 보유 주수
     balance_krw = parse_float(tokens[-1])  # 잔액(원): 이 거래 후 KRW 현금 잔고
 
     # 종목명: tokens[2:-9] 합치기
@@ -219,6 +226,7 @@ def _parse_main_line(line: str, account: str, in_dollar_section: bool) -> dict |
         "증권사": BROKER,
         "계좌번호": account,
         "비고": name,
+        "잔고_주": balance_shares,  # 거래 후 보유 주수 (중간 CSV 저장용)
         "_isin": isin,        # 내부 추적용 (CSV 저장 시 제외)
         "_balance_krw": balance_krw,  # 내부 추적용: 이 거래 후 잔액(원)
         "_fx": fx,            # 내부 추적용: 이 거래의 환율
@@ -341,6 +349,7 @@ def parse_toss_pdf(pdf_path: str) -> list[dict]:
     print(f"  → {len(records)}건 추출")
 
     # 동일 조건 복수 거래 합산 (같은 날 같은 가격에 여러 번 분할 체결된 경우)
+    # 합산 전에 잔고_주를 각 레코드에 설정하므로, merge 함수가 마지막 값을 유지함
     records = _merge_duplicate_fills(records)
 
     # 보조행에서 추적한 마지막 USD 현금 잔고로 현금잔고 행 생성
@@ -348,11 +357,11 @@ def parse_toss_pdf(pdf_path: str) -> list[dict]:
     if cash_record:
         records.append(cash_record)
 
-    # 중간 CSV 저장 (OUTPUT_COLUMNS만 포함, _isin 등 내부 키 제외)
+    # 중간 CSV 저장 (INTERMEDIATE_COLUMNS 포함 — 잔고_주 포함, _isin 등 내부 키 제외)
     if records:
         csv_path = Path(pdf_path).with_suffix('.csv')
-        clean = [{k: v for k, v in r.items() if k in OUTPUT_COLUMNS} for r in records]
-        pd.DataFrame(clean, columns=OUTPUT_COLUMNS).to_csv(
+        clean = [{k: v for k, v in r.items() if k in INTERMEDIATE_COLUMNS} for r in records]
+        pd.DataFrame(clean, columns=INTERMEDIATE_COLUMNS).to_csv(
             csv_path, index=False, encoding="utf-8-sig"
         )
         print(f"  → 중간 CSV 저장: {csv_path.name}")

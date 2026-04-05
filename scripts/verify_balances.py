@@ -245,6 +245,59 @@ def get_namu_balances() -> dict:
     return balances
 
 
+# ── 토스증권 ─────────────────────────────────────────────────────────
+
+def get_toss_balances() -> dict:
+    """토스증권 중간 CSV의 잔고_주 컬럼에서 종목별 최종 잔고 추출.
+
+    parse_toss.py가 PDF에서 추출한 '잔고(주)' (tokens[-2]) 값을 중간 CSV의
+    잔고_주 컬럼에 저장한다. 파일을 날짜순으로 읽어 마지막 등장 값이 최종 잔고다.
+    """
+    BROKER = "토스증권"
+    FILE_PAT = re.compile(r"토스증권_([^_]+)_")
+
+    files = sorted(glob.glob(str(PROJECT_ROOT / "resource/토스증권/**/*.csv"), recursive=True))
+    balances: dict[tuple, float] = {}
+    found_balance_col = False
+
+    for filepath in files:
+        m = FILE_PAT.search(Path(filepath).name)
+        if not m:
+            continue
+        account = m.group(1)
+
+        try:
+            with open(filepath, encoding="utf-8-sig") as f:
+                reader = csv.DictReader(f)
+                if "잔고_주" not in (reader.fieldnames or []):
+                    continue  # 구버전 CSV — 잔고_주 컬럼 없음 (PDF 재파싱 필요)
+                found_balance_col = True
+                for row in reader:
+                    유형 = row.get("유형", "").strip()
+                    if 유형 not in ("매수", "매도"):
+                        continue
+                    ticker = row.get("종목코드", "").strip()
+                    if not ticker:
+                        continue
+                    balance_raw = row.get("잔고_주", "").strip()
+                    if not balance_raw:
+                        continue
+                    try:
+                        balance = float(balance_raw)
+                    except ValueError:
+                        continue
+                    balances[(BROKER, account, ticker)] = balance
+        except Exception as e:
+            print(f"  [WARN] {Path(filepath).name} 읽기 실패: {e}")
+
+    if not found_balance_col and files:
+        print("[WARN] 토스증권 CSV에 잔고_주 컬럼이 없습니다. "
+              "PDF를 재파싱하면 자동 생성됩니다: "
+              "python .claude/skills/parse-toss/scripts/parse_toss.py resource/토스증권/")
+
+    return balances
+
+
 # ── 메인 ─────────────────────────────────────────────────────────────
 
 def verify_all(broker_filter: str | None = None) -> bool:
@@ -259,6 +312,7 @@ def verify_all(broker_filter: str | None = None) -> bool:
         "메리츠증권": get_meritz_balances,
         "키움증권": get_kiwoom_balances,
         "NH나무증권": get_namu_balances,
+        "토스증권": get_toss_balances,
     }
     for broker, fn in brokers.items():
         if broker_filter and broker != broker_filter:
