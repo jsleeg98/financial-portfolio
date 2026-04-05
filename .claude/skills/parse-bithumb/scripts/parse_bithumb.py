@@ -62,6 +62,10 @@ SKIP_TYPES = {
 # KRW 현금 자산 (가상자산 포트폴리오에 불포함)
 KRW_ASSETS = {"원화"}
 
+# 추적할 티커 목록 (빈 set이면 전체 추적)
+# 특정 종목만 대시보드에 표시하고 싶을 때 여기에 추가
+TRACK_ONLY = {"BTC", "ETH"}
+
 
 # ── 파싱 헬퍼 ─────────────────────────────────────────────────────────
 
@@ -315,6 +319,8 @@ def main():
 
     MIN_BALANCE = 1e-5
     keep_tickers = {t for t, net in ticker_net.items() if net > MIN_BALANCE}
+    if TRACK_ONLY:
+        keep_tickers &= TRACK_ONLY
     excluded_tickers = sorted(set(ticker_net.keys()) - keep_tickers)
     for t in excluded_tickers:
         print(f"  [빗썸] {t} 잔고=0 제외 (net={ticker_net[t]:.8f})")
