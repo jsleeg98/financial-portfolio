@@ -106,6 +106,8 @@ def parse_kiwoom_file(filepath: str) -> list[dict]:
         cash_raw = tds[7].get_text(strip=True)
         trade_type_raw = tds[12].get_text(strip=True)
         unit_price_raw = tds[13].get_text(strip=True)
+        # 유가잔고: 거래 후 보유수량 — 같은 날 동일 조건 복수 거래를 구별하는 키
+        balance_shares_raw = tds[18].get_text(strip=True).replace(",", "") if len(tds) > 18 else ""
 
         # 날짜 형식 변환: YYYY.MM.DD → YYYY-MM-DD
         trade_date = trade_date_raw.replace(".", "-")
@@ -147,7 +149,7 @@ def parse_kiwoom_file(filepath: str) -> list[dict]:
             "통화": "KRW",
             "증권사": broker,
             "계좌번호": account,
-            "비고": "",
+            "비고": f"잔고={balance_shares_raw}" if balance_shares_raw else "",
         })
 
     # 현금잔고 행 추가: 마지막 예수금을 스냅샷으로 기록
