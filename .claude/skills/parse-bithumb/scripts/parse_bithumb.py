@@ -52,9 +52,9 @@ FREE_RECEIVE_TYPES = {
 }
 
 # 완전히 무시하는 거래 유형 (원화 입출금, KRW 이자 등 포트폴리오 무관)
+# ※ 외부출금은 비KRW 자산이면 매도로 처리하므로 여기서 제외
 SKIP_TYPES = {
     "예치금 이용료",
-    "외부출금",
     "입금",
     "출금",
 }
@@ -165,6 +165,26 @@ def parse_file(filepath: str) -> list:
 
         # 수량 및 종목 티커
         qty, ticker = parse_qty_ticker(qty_str)
+
+        # 외부출금: 비KRW 자산이면 매도로 기록 (잔고 차감), KRW이면 무시
+        if 거래구분 == "외부출금":
+            if not ticker or ticker == "KRW":
+                continue
+            records.append({
+                "거래일자": 거래일자,
+                "유형":     "매도",
+                "종목코드": ticker,
+                "수량":     qty,
+                "단가":     0.0,
+                "금액":     0.0,
+                "환율":     0.0,
+                "금액KRW":  0.0,
+                "통화":     "KRW",
+                "증권사":   BROKER,
+                "계좌번호": ACCOUNT,
+                "비고":     f"외부출금 {거래시간}",
+            })
+            continue
         if not ticker or ticker == "KRW":
             continue
 
@@ -277,6 +297,32 @@ def main():
 
     if not all_records:
         print("[빗썸] 파싱된 거래 없음")
+        return
+
+    # ── 잔고 0인 종목 제거 ────────────────────────────────────────────
+    # portfolio.js의 당일 처리 순서(getDayOrder)는 동일 날짜 내 매도→매수 순서를
+    # 초기 잔고 기준으로 결정하므로, 잔고=0인 종목은 phantom 잔고를 만들 수 있다.
+    # 또한 기초잔고(데이터 시작 이전 보유분)가 없으면 초기 매도가 무시되어
+    # 이후 매수가 그대로 누적되는 문제도 발생한다.
+    # 가장 안정적인 해결책: 최종 순잔고 > 0인 종목만 CSV에 포함한다.
+    from collections import defaultdict
+    ticker_net: dict = defaultdict(float)
+    for rec in all_records:
+        if rec["유형"] == "매수":
+            ticker_net[rec["종목코드"]] += rec["수량"]
+        elif rec["유형"] == "매도":
+            ticker_net[rec["종목코드"]] -= rec["수량"]
+
+    MIN_BALANCE = 1e-5
+    keep_tickers = {t for t, net in ticker_net.items() if net > MIN_BALANCE}
+    excluded_tickers = sorted(set(ticker_net.keys()) - keep_tickers)
+    for t in excluded_tickers:
+        print(f"  [빗썸] {t} 잔고=0 제외 (net={ticker_net[t]:.8f})")
+
+    all_records = [r for r in all_records if r["종목코드"] in keep_tickers]
+
+    if not all_records:
+        print("[빗썸] 잔고 있는 종목 없음")
         return
 
     new_df = pd.DataFrame(all_records, columns=OUTPUT_COLUMNS)
