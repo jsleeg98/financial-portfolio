@@ -25,6 +25,10 @@ warnings.filterwarnings("ignore")
 BROKER = "빗썸"
 ACCOUNT = "빗썸"
 
+# 빗썸 원화 현금 잔고 (수동 업데이트 필요)
+# portfolio.js가 매도대금을 cashKRW로 누적하지 않도록 스냅샷으로 고정
+BITHUMB_CASH_KRW = 4660
+
 OUTPUT_CSV = "output/종합거래내역.csv"
 
 OUTPUT_COLUMNS = [
@@ -330,6 +334,25 @@ def main():
     if not all_records:
         print("[빗썸] 잔고 있는 종목 없음")
         return
+
+    # ── 원화 현금잔고 스냅샷 추가 ─────────────────────────────────────
+    # portfolio.js가 매도대금을 cashKRW로 누적하는 것을 막기 위해
+    # 실제 잔고를 SET하는 현금잔고 레코드를 가장 마지막 날짜로 삽입한다.
+    last_date = max(r["거래일자"] for r in all_records) if all_records else "2026-03-31"
+    all_records.append({
+        "거래일자": last_date,
+        "유형":     "현금잔고",
+        "종목코드": "",
+        "수량":     0.0,
+        "단가":     0.0,
+        "금액":     float(BITHUMB_CASH_KRW),
+        "환율":     0.0,
+        "금액KRW":  float(BITHUMB_CASH_KRW),
+        "통화":     "KRW",
+        "증권사":   BROKER,
+        "계좌번호": ACCOUNT,
+        "비고":     "현금잔고",
+    })
 
     new_df = pd.DataFrame(all_records, columns=OUTPUT_COLUMNS)
     new_df = new_df.sort_values("거래일자").reset_index(drop=True)
