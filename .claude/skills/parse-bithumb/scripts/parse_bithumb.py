@@ -25,9 +25,10 @@ warnings.filterwarnings("ignore")
 BROKER = "빗썸"
 ACCOUNT = "빗썸"
 
-# 빗썸 원화 현금 잔고 (수동 업데이트 필요)
-# portfolio.js가 매도대금을 cashKRW로 누적하지 않도록 스냅샷으로 고정
-BITHUMB_CASH_KRW = 4660
+# 빗썸 원화 초기 잔고 (데이터 시작일 2025-04-01 기준, 최초 1회 설정)
+# 현재 잔고 = BITHUMB_INITIAL_KRW + sum(전체 거래내역의 정산금액 KRW)
+# 산출 근거: 사용자 확인 잔고(4,660) - sum(정산금액)(-29,167) = 33,827
+BITHUMB_INITIAL_KRW = 33827
 
 OUTPUT_CSV = "output/종합거래내역.csv"
 
@@ -267,6 +268,37 @@ def parse_file(filepath: str) -> list:
     return records
 
 
+# ── 원화 잔고 계산 ────────────────────────────────────────────────────
+
+def compute_krw_balance(files: list) -> float:
+    """전체 xlsx 파일의 정산금액(KRW)을 합산해 초기 잔고 이후의 변동분을 반환.
+
+    정산금액 컬럼(row[7])은 각 거래의 순 KRW 효과를 부호(+/-)와 함께 기록한다.
+      매수: -거래금액 - 수수료  (음수, KRW 지출)
+      매도: +거래금액 - 수수료  (양수, KRW 수취)
+      입금: +입금액             (양수)
+      예치금 이용료: +이자액    (양수)
+    비KRW 정산(BTC 스왑 등)은 단위가 KRW가 아니므로 자동 제외된다.
+    """
+    import openpyxl as xl
+    total = 0.0
+    for fpath in files:
+        wb = xl.load_workbook(fpath)
+        ws = wb["거래내역"]
+        for row in ws.iter_rows(min_row=4, values_only=True):
+            if row[0] is None:
+                continue
+            settle_str = str(row[7]).strip() if row[7] else ""
+            if not settle_str or "KRW" not in settle_str or settle_str == "- KRW":
+                continue
+            s = settle_str.replace(" KRW", "").replace(",", "").replace("+", "").strip()
+            try:
+                total += float(s)
+            except ValueError:
+                pass
+    return total
+
+
 # ── 파일 탐색 ─────────────────────────────────────────────────────────
 
 def find_xlsx_files(path: str) -> list:
@@ -336,8 +368,12 @@ def main():
         return
 
     # ── 원화 현금잔고 스냅샷 추가 ─────────────────────────────────────
-    # portfolio.js가 매도대금을 cashKRW로 누적하는 것을 막기 위해
-    # 실제 잔고를 SET하는 현금잔고 레코드를 가장 마지막 날짜로 삽입한다.
+    # 정산금액 합산으로 현재 KRW 잔고를 자동 계산한다.
+    # 현재 잔고 = 초기 잔고(BITHUMB_INITIAL_KRW) + sum(전체 정산금액 KRW)
+    krw_delta = compute_krw_balance(files)
+    current_krw = round(BITHUMB_INITIAL_KRW + krw_delta)
+    print(f"  [빗썸] 원화 현금잔고 계산: {BITHUMB_INITIAL_KRW:,} + ({krw_delta:,.0f}) = {current_krw:,}원")
+
     last_date = max(r["거래일자"] for r in all_records) if all_records else "2026-03-31"
     all_records.append({
         "거래일자": last_date,
@@ -345,9 +381,9 @@ def main():
         "종목코드": "",
         "수량":     0.0,
         "단가":     0.0,
-        "금액":     float(BITHUMB_CASH_KRW),
+        "금액":     float(current_krw),
         "환율":     0.0,
-        "금액KRW":  float(BITHUMB_CASH_KRW),
+        "금액KRW":  float(current_krw),
         "통화":     "KRW",
         "증권사":   BROKER,
         "계좌번호": ACCOUNT,
