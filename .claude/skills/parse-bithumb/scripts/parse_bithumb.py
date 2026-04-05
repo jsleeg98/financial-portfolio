@@ -32,13 +32,15 @@ OUTPUT_COLUMNS = [
     "금액", "환율", "금액KRW", "통화", "증권사", "계좌번호", "비고",
 ]
 
+# 비고에 시간(HH:MM:SS)을 포함하므로 날짜+시간이 곧 유일 키
+# 같은 날·같은 수량·같은 종목을 서로 다른 거래로 올바르게 구분한다
 DEDUP_KEYS = [
     "거래일자", "유형", "종목코드", "수량", "단가",
     "금액", "통화", "증권사", "계좌번호", "비고",
 ]
 
-# 무료 수령 거래 유형 → 매수 with price=0, amount=0
-# (qty 추적을 위해 매수로 기록, 비고에 원래 유형 보존)
+# 무료 수령 거래 유형 → 매수(수량=qty, 단가=0, 금액=0)로 기록
+# portfolio.js에서 qty 추적이 가능하도록 매수로 변환
 FREE_RECEIVE_TYPES = {
     "가상자산 이벤트 입금",
     "스테이킹(자유형)",
@@ -49,7 +51,7 @@ FREE_RECEIVE_TYPES = {
     "외부입금",
 }
 
-# 완전히 무시하는 거래 유형 (원화 입출금, KRW 이자 등)
+# 완전히 무시하는 거래 유형 (원화 입출금, KRW 이자 등 포트폴리오 무관)
 SKIP_TYPES = {
     "예치금 이용료",
     "외부출금",
@@ -57,7 +59,7 @@ SKIP_TYPES = {
     "출금",
 }
 
-# 원화로 거래되는 자산 (KRW 거래이므로 가상자산 포트폴리오에 불포함)
+# KRW 현금 자산 (가상자산 포트폴리오에 불포함)
 KRW_ASSETS = {"원화"}
 
 
@@ -78,33 +80,53 @@ def parse_qty_ticker(qty_str: str) -> tuple:
 
 
 def parse_price(price_str: str) -> float:
-    """'187.0000 KRW' or '-' → 187.0 or 0.0"""
+    """'187.0000 KRW' or '-' → 187.0 or 0.0. 비KRW 단위이면 0.0 반환."""
     if not price_str:
         return 0.0
     s = str(price_str).strip()
     if s in ("-", ""):
         return 0.0
-    # Remove trailing unit (e.g. ' KRW')
-    s = s.split()[0].replace(",", "")
+    parts = s.split()
+    # 단위가 KRW 이외(BTC 등)이면 KRW 환산 불가 → 0
+    if len(parts) == 2 and parts[1] not in ("KRW", ""):
+        return 0.0
     try:
-        return float(s)
+        return float(parts[0].replace(",", ""))
     except ValueError:
         return 0.0
 
 
 def parse_amount(amount_str: str) -> float:
-    """'967 KRW' or '- KRW' or '-' → 967.0 or 0.0 (항상 양수)"""
+    """'967 KRW' or '- KRW' or '-' → 967.0 or 0.0 (항상 양수). 비KRW 이면 0.0."""
     if not amount_str:
         return 0.0
     s = str(amount_str).strip()
     if s in ("-", "- KRW", ""):
         return 0.0
-    # Remove unit, commas, sign
-    token = s.split()[0].replace(",", "").lstrip("+-")
+    parts = s.split()
+    # 단위가 KRW 이외(BTC 등)이면 KRW 환산 불가 → 0
+    if len(parts) == 2 and parts[1] not in ("KRW", ""):
+        return 0.0
     try:
-        return float(token)
+        return abs(float(parts[0].replace(",", "")))
     except ValueError:
         return 0.0
+
+
+def parse_crypto_amount(amount_str: str) -> tuple:
+    """'0.00187200 BTC' → (0.001872, 'BTC'). KRW이거나 '-'이면 (0.0, '')."""
+    if not amount_str:
+        return 0.0, ""
+    s = str(amount_str).strip()
+    if s in ("-", "- KRW", "- BTC", "- ETH", ""):
+        return 0.0, ""
+    parts = s.split()
+    if len(parts) == 2 and parts[1] not in ("KRW",):
+        try:
+            return abs(float(parts[0].replace(",", "").lstrip("+-"))), parts[1]
+        except ValueError:
+            return 0.0, ""
+    return 0.0, ""
 
 
 # ── 파일 파싱 ─────────────────────────────────────────────────────────
@@ -112,7 +134,7 @@ def parse_amount(amount_str: str) -> float:
 def parse_file(filepath: str) -> list:
     """xlsx 파일 하나를 파싱해 레코드 리스트로 반환."""
     try:
-        import openpyxl
+        import openpyxl  # noqa
     except ImportError:
         print("openpyxl이 필요합니다: pip install openpyxl")
         sys.exit(1)
@@ -123,26 +145,25 @@ def parse_file(filepath: str) -> list:
 
     records = []
     for row in ws.iter_rows(min_row=4, values_only=True):
-        # 빈 행 스킵
         if row[0] is None:
             continue
 
-        거래일시 = str(row[0]).strip() if row[0] else ""
-        자산     = str(row[1]).strip() if row[1] else ""
-        거래구분 = str(row[2]).strip() if row[2] else ""
-        qty_str  = str(row[3]).strip() if row[3] else ""
+        거래일시  = str(row[0]).strip() if row[0] else ""
+        자산      = str(row[1]).strip() if row[1] else ""
+        거래구분  = str(row[2]).strip() if row[2] else ""
+        qty_str   = str(row[3]).strip() if row[3] else ""
         price_str = str(row[4]).strip() if row[4] else ""
-        amt_str  = str(row[5]).strip() if row[5] else ""
-        fee_str  = str(row[6]).strip() if row[6] else ""
+        amt_str   = str(row[5]).strip() if row[5] else ""
 
-        # 날짜 추출 (YYYY-MM-DD)
+        # 날짜 (YYYY-MM-DD) / 시간 (HH:MM:SS)
         거래일자 = 거래일시[:10] if len(거래일시) >= 10 else 거래일시
+        거래시간 = 거래일시[11:19] if len(거래일시) >= 19 else ""
 
-        # 원화 자산 또는 완전 무시 유형 → skip
+        # 원화 자산 또는 무시 유형 → skip
         if 자산 in KRW_ASSETS or 거래구분 in SKIP_TYPES:
             continue
 
-        # 수량 및 티커 파싱
+        # 수량 및 종목 티커
         qty, ticker = parse_qty_ticker(qty_str)
         if not ticker or ticker == "KRW":
             continue
@@ -153,22 +174,34 @@ def parse_file(filepath: str) -> list:
         elif 거래구분 == "매도":
             유형 = "매도"
         elif 거래구분 in FREE_RECEIVE_TYPES:
-            # 무료 수령 → 매수(수량=qty, 단가=0, 금액=0)로 기록
             유형 = "매수"
         else:
-            # 미분류 거래 유형은 skip (안전하게)
-            continue
+            continue  # 알 수 없는 유형 무시
 
-        단가  = parse_price(price_str)
-        금액  = parse_amount(amt_str)
-        수수료 = parse_amount(fee_str)
+        # ── 크립토→크립토 스왑 감지 ──────────────────────────────────
+        # 거래금액 단위가 BTC/ETH 등인 경우: 현물 코인으로 결제한 것
+        # 예: ETH 매수 시 거래금액 = '0.00187200 BTC'
+        swap_qty, swap_currency = parse_crypto_amount(amt_str)
+        is_crypto_swap = (
+            유형 == "매수"
+            and swap_qty > 0
+            and swap_currency
+            and swap_currency != ticker  # 결제 수단이 구매 대상과 다름
+        )
 
-        # 무료 수령의 경우 금액=0, 단가=0
-        if 거래구분 in FREE_RECEIVE_TYPES:
+        # 비고: 거래 시간 포함 (같은 날 동일 거래 중복 제거 방지)
+        if 거래구분 not in ("매수", "매도"):
+            비고 = f"{거래구분} {거래시간}".strip()
+        else:
+            비고 = 거래시간  # HH:MM:SS
+
+        # KRW 가격/금액 (크립토 스왑이거나 무료 수령이면 0)
+        if 거래구분 in FREE_RECEIVE_TYPES or is_crypto_swap:
             단가 = 0.0
             금액 = 0.0
-
-        비고 = f"{거래구분}" if 거래구분 not in ("매수", "매도") else ""
+        else:
+            단가 = parse_price(price_str)
+            금액 = parse_amount(amt_str)
 
         records.append({
             "거래일자": 거래일자,
@@ -185,6 +218,24 @@ def parse_file(filepath: str) -> list:
             "비고":     비고,
         })
 
+        # ── 크립토 스왑 시 결제 코인의 매도 기록 추가 ─────────────────
+        # 예: BTC로 ETH 구매 → BTC 매도 기록 없으면 BTC 잔고 초과
+        if is_crypto_swap:
+            records.append({
+                "거래일자": 거래일자,
+                "유형":     "매도",
+                "종목코드": swap_currency,
+                "수량":     swap_qty,
+                "단가":     0.0,
+                "금액":     0.0,
+                "환율":     0.0,
+                "금액KRW":  0.0,
+                "통화":     "KRW",
+                "증권사":   BROKER,
+                "계좌번호": ACCOUNT,
+                "비고":     f"{swap_currency}→{ticker} {거래시간}",
+            })
+
     return records
 
 
@@ -195,10 +246,8 @@ def find_xlsx_files(path: str) -> list:
     p = Path(path)
     if p.is_file():
         return [str(p)] if p.suffix.lower() == ".xlsx" else []
-    # 폴더: 빗썸_*.xlsx 패턴 탐색
     files = sorted(glob.glob(str(p / "**" / "빗썸_*.xlsx"), recursive=True))
     if not files:
-        # fallback: 모든 .xlsx
         files = sorted(glob.glob(str(p / "**" / "*.xlsx"), recursive=True))
     return files
 
@@ -237,7 +286,6 @@ def main():
     output_path = OUTPUT_CSV
     if os.path.exists(output_path):
         existing_df = pd.read_csv(output_path, encoding="utf-8-sig", dtype=str)
-        # 숫자 컬럼 float 변환
         for col in ["수량", "단가", "금액", "환율", "금액KRW"]:
             if col in new_df.columns:
                 new_df[col] = pd.to_numeric(new_df[col], errors="coerce").fillna(0.0)
@@ -248,7 +296,7 @@ def main():
         os.makedirs("output", exist_ok=True)
         merged = new_df
 
-    # 중복 제거
+    # 중복 제거 (DEDUP_KEYS에 비고(시간 포함)가 있어 오탐 없음)
     before = len(merged)
     merged = merged.sort_values("거래일자").reset_index(drop=True)
     merged = merged.drop_duplicates(subset=DEDUP_KEYS, keep="first")
@@ -259,7 +307,6 @@ def main():
     merged.to_csv(output_path, index=False, encoding="utf-8-sig")
     print(f"[빗썸] 저장 완료: {output_path} ({after}건 총합)")
 
-    # 증권사별 건수 요약
     if "증권사" in merged.columns:
         summary = merged.groupby(["증권사", "계좌번호"]).size()
         for (broker, acct), cnt in summary.items():

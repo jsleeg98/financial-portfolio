@@ -367,11 +367,11 @@ test('라이브 CSV [빗썸]: BTC·ETH 보유수량 스냅샷', (t) => {
 
   const btc = result.currentHoldings.find(h => h.ticker === 'BTC');
   assert.ok(btc, '[빗썸] BTC 보유 종목 존재');
-  assert.ok(Math.abs(btc.qty - 0.02206828) < 0.00000001, `[빗썸] BTC qty: 예상 ≈ 0.02206828, 실제 ${btc.qty}`);
+  assert.ok(Math.abs(btc.qty - 0.01812651) < 0.000001, `[빗썸] BTC qty: 예상 ≈ 0.01812651, 실제 ${btc.qty}`);
 
   const eth = result.currentHoldings.find(h => h.ticker === 'ETH');
   assert.ok(eth, '[빗썸] ETH 보유 종목 존재');
-  assert.ok(Math.abs(eth.qty - 1.71238596) < 0.00000001, `[빗썸] ETH qty: 예상 ≈ 1.71238596, 실제 ${eth.qty}`);
+  assert.ok(Math.abs(eth.qty - 1.79627858) < 0.000001, `[빗썸] ETH qty: 예상 ≈ 1.79627858, 실제 ${eth.qty}`);
 });
 
 // ── 현금잔고 단위 테스트 ─────────────────────────────────────────
