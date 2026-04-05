@@ -350,6 +350,8 @@ def parse_jonghap_file(filepath: str) -> list[dict]:
         stock_field = main_tds[3].get_text(strip=True)
         quantity_raw = main_tds[4].get_text(strip=True)
         amount_raw = main_tds[5].get_text(strip=True)
+        # 잔고(주): 거래 후 종목 보유수량 — 같은 날 동일 조건 복수 거래를 구별하는 키
+        balance_shares_raw = main_tds[6].get_text(strip=True).replace(",", "")
 
         unit_price_raw = sub_tds[0].get_text(strip=True)
         settlement_raw = sub_tds[1].get_text(strip=True)
@@ -396,7 +398,7 @@ def parse_jonghap_file(filepath: str) -> list[dict]:
                 "통화": "USD",
                 "증권사": broker,
                 "계좌번호": account,
-                "비고": "",
+                "비고": f"잔고={balance_shares_raw}" if balance_shares_raw else "",
             })
             continue
 
@@ -481,7 +483,7 @@ def parse_jonghap_file(filepath: str) -> list[dict]:
             "통화": "KRW",
             "증권사": broker,
             "계좌번호": account,
-            "비고": "",
+            "비고": f"잔고={balance_shares_raw}" if balance_shares_raw else "",
         })
 
     # 현금잔고 행 추가 (처리한 행이 있으면 잔고 0도 포함해 최신 스냅샷 기록)
